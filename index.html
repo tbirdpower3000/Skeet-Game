@@ -169,10 +169,11 @@
   grid.position.y = -1.6;
   room.add(grid);
   // the two houses the clays are thrown from: a tall one on the left and a low one on the right, as on a skeet field
-  const HIGH = new THREE.Vector3(-7.8, 1.2, -10), LOW = new THREE.Vector3(7.8, -0.9, -10);
+  const HIGH = new THREE.Vector3(-14, 2.6, -18), LOW = new THREE.Vector3(14, -1.2, -18);
   const houseMat = new THREE.MeshLambertMaterial({ color: 0x3a5278 });
-  const hh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.2, 1.3), houseMat); hh.position.set(-8.6, 0, -10); scene.add(hh);
-  const lh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 1.3), houseMat); lh.position.set(8.6, -1.0, -10); scene.add(lh);
+  const hh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.2, 1.3), houseMat); hh.position.set(-15, 0, -18); scene.add(hh);
+  const lh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 1.3), houseMat); lh.position.set(15, -1.0, -18); scene.add(lh);
+  hh.visible = lh.visible = false; // the houses are not drawn: the clays simply come in from the left and the right
 
   // the rear camera picture, far behind everything and fixed to the head
   const vid = $('vid');
@@ -476,9 +477,9 @@
   // ---------- game state ----------
   const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, w: 1, h: 1, ready: true, clays: [], bits: [], m: null, plan: [], next: 0, cued: false, dwell: 0, count: 0, endAt: 0, stream: null, cam: '' };
   const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), speed: 0, lastSeen: 0 };
-  const G = 1.6;        // gravity on a clay: gentle, so it hangs in the air long enough to aim
-  const CLAY_R = 0.28;  // a clay's radius in metres: several times a real one, so it can be seen and hit 10 m away
-  const SPREAD = 1.6;   // degrees a shot may pass outside a clay's edge and still break it
+  const G = 2.9;        // gravity on a clay: gentle for a field this size, so it hangs in the air long enough to aim
+  const CLAY_R = 0.8;   // a clay's radius in metres: far bigger than a real one, so it is easy to see and hit 17 m away
+  const SPREAD = 2.5;   // degrees a shot may pass outside a clay's edge and still break it
   const AIM_BACK = 120; // a thumb shot goes where the crosshair was this many milliseconds earlier, before the thumb's
                         // own movement pulled the hand off the target
   const FORGIVE = 150;  // and it may count from anywhere the crosshair was in the 150 ms before that: the training page's
@@ -499,10 +500,11 @@
   }
   function launch(house) {
     const from = house === 'H' ? HIGH : LOW;
-    // each clay crosses in front of you: it is aimed at a point about 9.5 m ahead, a little above eye height, and carries on
-    const cx = (Math.random() * 2 - 1) * 1.5, cy = 1.4 + Math.random() * 1.2, cz = -9.5 + (Math.random() * 2 - 1) * 1.2, tc = 1.5 + Math.random() * 0.3;
+    // each clay crosses in front of you: it is aimed at a point about 17 m ahead, above eye height, and carries on
+    const cx = (Math.random() * 2 - 1) * 2.7, cy = 2.5 + Math.random() * 2.2, cz = -17 + (Math.random() * 2 - 1) * 2, tc = 1.5 + Math.random() * 0.3;
     const m = new THREE.Mesh(clayGeo, clayMat);
-    m.scale.setScalar(CLAY_R);
+    m.scale.setScalar(CLAY_R * 0.01);
+    m.rotation.x = 1.05; // tipped towards you, so you see the disc's face and not its thin edge
     m.position.copy(from);
     scene.add(m);
     S.clays.push({ m, v: new THREE.Vector3((cx - from.x) / tc, (cy - from.y) / tc + 0.5 * G * tc, (cz - from.z) / tc), age: 0, near: 99 });
@@ -516,7 +518,7 @@
       g.scale.setScalar(CLAY_R * (0.25 + Math.random() * 0.25));
       g.position.copy(c.m.position);
       scene.add(g);
-      S.bits.push({ g, v: c.v.clone().multiplyScalar(0.6).add(tmpC.set(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).multiplyScalar(5)), spin: (Math.random() - 0.5) * 16, life: 0.9 });
+      S.bits.push({ g, v: c.v.clone().multiplyScalar(0.6).add(tmpC.set(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).multiplyScalar(9)), spin: (Math.random() - 0.5) * 16, life: 0.9 });
     }
     sfx('break', panOf(c.m.position));
   }
@@ -601,6 +603,7 @@
       c.m.position.addScaledVector(c.v, dt);
       c.m.rotation.y += 9 * dt;
       c.age += dt;
+      if (c.age < 0.25) c.m.scale.setScalar(CLAY_R * Math.min(1, c.age / 0.2)); // grows in rather than popping into view
       if (c.m.position.y < -1.5 || c.age > 6) { scene.remove(c.m); S.clays.splice(i, 1); m.streak = 0; sfx('drop', panOf(c.m.position)); }
     }
     if (!S.clays.length) {
@@ -619,7 +622,7 @@
   function moveBits(dt) {
     for (let i = S.bits.length - 1; i >= 0; i--) {
       const b = S.bits[i];
-      b.v.y -= 6 * dt;
+      b.v.y -= 9 * dt;
       b.g.position.addScaledVector(b.v, dt);
       b.g.rotation.x += b.spin * dt; b.g.rotation.z += b.spin * 0.7 * dt;
       if ((b.life -= dt) <= 0) { scene.remove(b.g); S.bits.splice(i, 1); }

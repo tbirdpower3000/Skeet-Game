@@ -1,8 +1,7 @@
 # Skeet VR
 
 Clay-target shooting for a phone in a Google Cardboard viewer. Clays are thrown
-from a high house on the left and a low house on the right and cross in front of
-you. You aim with a finger gun, seen by the phone's rear camera and tracked in the
+from high on the left and low on the right and cross about 17 m in front of you. You aim with a finger gun, seen by the phone's rear camera and tracked in the
 browser by [MediaPipe](https://developers.google.com/mediapipe), and fire by
 dropping your thumb.
 
@@ -23,8 +22,8 @@ turn the phone sideways and put it in the viewer. Fire once to begin.
 - **My gaze.** The crosshair sits where you look; the viewer's button fires. Used
   automatically if the camera or the hand tracker isn't available.
 - The viewer's button (a tap on the screen) always fires too.
-- A round is 20 clays: singles from each house in turn, and every third throw a
-  double. A beep comes just before each throw.
+- A round is 20 clays: singles from each side in turn, and every third throw a
+  double (one from each side). A beep comes just before each throw.
 - When a round ends, look at the board for two seconds or fire to play again.
 
 ## How the trigger and aim work
@@ -50,8 +49,8 @@ pinches and cursors:
 - **Steady crosshair.** The fingertip goes through a median of three and the One Euro
   filter (0.8 Hz, beta 3), with more smoothing near the edge of the camera's view,
   where the crosshair also fades to warn that the hand is about to be lost.
-- A shot breaks any clay it passes within 1.6° of. Clays are drawn several times
-  the size of real ones so they can be seen and hit 10 m away.
+- A shot breaks any clay it passes within 2.5° of. Clays are drawn far bigger than
+  real ones (1.6 m across) so they are easy to see and hit 17 m away.
 
 Not carried over: the training page's "virtual fingertip" (a fingertip rebuilt from
 the palm). It was made for a hand facing a webcam; here the camera looks along the
