@@ -127,7 +127,7 @@
   let clearArmed = 0;
   $('clear').onclick = () => {
     if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
-    store.set('skeetVRRounds', []);
+    store.set('skeetVRRounds', []); store.set('skeetVRTrigger', {});
     $('clear').textContent = 'Clear'; clearArmed = 0; drawRounds();
   };
 
@@ -319,8 +319,27 @@
   });
 
   // ---------- hand tracking (rear camera) ----------
+  // Filters carried over from the hand-control training page and Hand Hub, where they were tried against alternatives:
+  // the One Euro filter (steady when still, quick when moving), and a median of the last three values in front of it to
+  // drop one-frame spikes.
+  class OneEuro {
+    constructor(minCut, beta) { this.minCut = minCut; this.beta = beta; this.reset(); }
+    reset() { this.x = null; this.dx = 0; this.t = null; }
+    a(c, dt) { const r = 2 * Math.PI * c * dt; return r / (r + 1); }
+    f(v, t) {
+      if (this.x === null) { this.x = v; this.t = t; return v; }
+      const dt = Math.max(1e-3, (t - this.t) / 1000);
+      this.t = t;
+      this.dx += this.a(1, dt) * ((v - this.x) / dt - this.dx);
+      this.x += this.a(this.minCut + this.beta * Math.abs(this.dx), dt) * (v - this.x);
+      return this.x;
+    }
+  }
+  const med3 = () => { const q = []; return { f(v) { q.push(v); if (q.length > 3) q.shift(); return q.length < 3 ? v : [...q].sort((a, b) => a - b)[1]; }, reset() { q.length = 0; } }; };
+  const AIM_F = { minCut: 0.8, beta: 3 }; // the training page's cursor filter
+  const aimF = { x: new OneEuro(AIM_F.minCut, AIM_F.beta), y: new OneEuro(AIM_F.minCut, AIM_F.beta), mx: med3(), my: med3(), reset() { this.x.reset(); this.y.reset(); this.mx.reset(); this.my.reset(); } };
   let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
-  const handRaw = { ok: false, u: 0, v: 0, vu: 0, vv: 0, t: 0, label: '' };
+  const handRaw = { ok: false, u: 0, v: 0, vu: 0, vv: 0, t: 0, label: '', edge: 1 };
   // the fingertip now: the last place it was found, carried forward at its speed for at most a twentieth of a second.
   // The camera sees the hand less often than the screen redraws, so this keeps the crosshair moving every frame.
   function handNow(now, o) {
@@ -378,12 +397,18 @@
     });
   }
 
-  // The thumb trigger. The reading is how far the thumb's tip is from the base of the index finger, as a share of the
-  // hand's length (wrist to middle knuckle), measured on the tracker's 3D hand where it has one so that tilting the hand
-  // changes it little. Thumb up is a large reading, thumb down on the hand a small one. "Up" is learned as you play (the
-  // largest readings lately); the trigger is cocked above 75% of that and fires on the way down through 55%. One drop of
-  // the thumb is one shot: it must come back up before the next.
-  const trig = { r: 0, hi: 0.6, lo: 9, cocked: false, seen: false };
+  // The thumb trigger, built the way the training page and Hand Hub measure a pinch:
+  // - The reading is how far the thumb's tip is from the base of the index finger, as a share of the hand's size, measured
+  //   on the tracker's 3D hand so that tilting the hand changes it little. Hand size is the average of two bones (wrist to
+  //   middle knuckle, and the width across the knuckles scaled to match), which is steadier than one.
+  // - The reading goes through the One Euro filter (3 Hz, beta 1).
+  // - "Thumb up" and "thumb down" are learned as you play and kept for next time. The shot fires on the way down, 35% of
+  //   the way up from thumb-down, and the trigger is cocked again 60% of the way up: two levels with a gap between them,
+  //   so a reading hovering near one level can't fire twice.
+  // - A shot counts only if the thumb had been up for 150 ms first (a "deliberate" press), which drops flickers.
+  const WIDTH_TO_LENGTH = 1.35, COCK_MS = 150;
+  const trig = Object.assign({ r: 0, hi: 0.6, lo: 0.2, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger', {}), { cocked: false, since: 0 });
+  const trigF = new OneEuro(3, 1);
   function thumbReading(res) {
     const w = res.worldLandmarks && res.worldLandmarks[0], l = w || res.landmarks[0];
     const ax = w ? 1 : (vid.videoWidth || 16) / (vid.videoHeight || 9);
@@ -391,19 +416,34 @@
     const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.sqrt(dot(a, a));
     const t = P(4), a = P(5), ab = sub(P(6), a), at = sub(t, a);
     const k = Math.max(0, Math.min(1, dot(at, ab) / (dot(ab, ab) || 1)));
-    const size = len(sub(P(9), P(0)));
+    const l1 = len(sub(P(9), P(0))), l2 = WIDTH_TO_LENGTH * len(sub(P(17), P(5)));
+    const size = w ? (l1 + l2) / 2 : Math.max(l1, l2); // in the flat picture a turned hand looks small, so the larger bone is taken
     return size > 1e-6 ? len(sub(at, [ab[0] * k, ab[1] * k, ab[2] * k])) / size : null;
   }
-  function feedTrigger(r) {
-    if (r == null || !isFinite(r)) return;
-    trig.r = trig.seen ? trig.r + (r - trig.r) * 0.6 : r;
-    trig.seen = true;
-    // "up" follows the largest readings quickly and forgets them slowly, and is never taken to be very small
-    trig.hi = Math.max(0.4, trig.r > trig.hi ? trig.hi + (trig.r - trig.hi) * 0.5 : trig.hi - (trig.hi - 0.4) * 0.002);
-    if (trig.r < trig.lo) trig.lo = trig.r;
-    if (S.m) { if (trig.r > S.m.thumbHi) S.m.thumbHi = trig.r; if (trig.r < S.m.thumbLo) S.m.thumbLo = trig.r; }
-    if (!trig.cocked && trig.r > 0.75 * trig.hi) trig.cocked = true;
-    else if (trig.cocked && trig.r < 0.55 * trig.hi) { trig.cocked = false; fire('thumb'); }
+  function feedTrigger(raw, now) {
+    if (raw == null || !isFinite(raw)) return;
+    now = now == null ? performance.now() : now;
+    const r = (trig.r = trigF.f(raw, now));
+    // Learning the two levels. A reading above "up" or below "down" moves that level at once. Otherwise the levels learn
+    // from where the thumb comes to rest: when the reading has been steady for three looks in a row, it is taken as the
+    // new "up" if it is near the top of the range and as the new "down" if it is clearly below. So a thumb that only
+    // drops part of the way still gets a trigger that fits it.
+    trig.still = Math.abs(trigF.dx) < 0.4 ? (trig.still || 0) + 1 : 0;
+    if (r > trig.hi) trig.hi += (r - trig.hi) * 0.5;
+    else if (trig.still >= 3 && r > 0.8 * trig.hi) trig.hi += (r - trig.hi) * 0.1;
+    if (r < trig.lo) trig.lo += (r - trig.lo) * 0.5;
+    else if (trig.still >= 3 && r <= 0.8 * trig.hi) trig.lo += (r - trig.lo) * 0.3;
+    trig.hi = Math.max(0.3, trig.hi);
+    trig.lo = Math.min(0.8 * trig.hi, trig.lo);
+    const g = trig.hi - trig.lo;
+    trig.fireAt = trig.lo + 0.35 * g;
+    trig.cockAt = Math.max(trig.fireAt + 0.12 * trig.hi, trig.lo + 0.6 * g);
+    if (S.m) { if (r > S.m.thumbHi) S.m.thumbHi = r; if (r < S.m.thumbLo) S.m.thumbLo = r; }
+    if (!trig.cocked && r > trig.cockAt) { trig.cocked = true; trig.since = now; }
+    else if (trig.cocked && r < trig.fireAt) {
+      trig.cocked = false;
+      if (now - trig.since >= COCK_MS) fire('thumb'); else if (S.m) S.m.flickers++;
+    }
   }
   function trackHand(now) {
     if (!landmarker || vid.readyState < 2 || vid.currentTime === lastVT) return;
@@ -417,13 +457,19 @@
     skip = ms > 28;
     const lm = res && res.landmarks && res.landmarks[0];
     if (lm) {
+      // the fingertip: median of three, then One Euro, with more smoothing near the edge of the camera picture, where the
+      // tracker's points jump (down to about a third right at the border)
+      const edge = Math.min(lm[8].x, 1 - lm[8].x, lm[8].y, 1 - lm[8].y);
+      if (!handRaw.ok) aimF.reset();
+      aimF.x.minCut = aimF.y.minCut = AIM_F.minCut * (edge < 0.08 ? 0.35 + 0.65 * (Math.max(0, edge) / 0.08) : 1);
+      const fu = aimF.x.f(aimF.mx.f(lm[8].x), now), fv = aimF.y.f(aimF.my.f(lm[8].y), now);
       const ds = (now - handRaw.t) / 1000;
-      if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vu += ((lm[8].x - handRaw.u) / ds - handRaw.vu) * 0.5; handRaw.vv += ((lm[8].y - handRaw.v) / ds - handRaw.vv) * 0.5; }
+      if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vu += ((fu - handRaw.u) / ds - handRaw.vu) * 0.5; handRaw.vv += ((fv - handRaw.v) / ds - handRaw.vv) * 0.5; }
       else handRaw.vu = handRaw.vv = 0;
-      handRaw.ok = true; handRaw.u = lm[8].x; handRaw.v = lm[8].y; handRaw.t = now;
+      handRaw.ok = true; handRaw.u = fu; handRaw.v = fv; handRaw.t = now; handRaw.edge = edge;
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
-      feedTrigger(thumbReading(res));
-    } else { handRaw.ok = false; trig.cocked = false; trig.seen = false; }
+      feedTrigger(thumbReading(res), now);
+    } else { handRaw.ok = false; trig.cocked = false; trigF.reset(); }
     if (S.phase === 'play') { if (lm) S.m.handFrames++; else S.m.lostFrames++; }
   }
 
@@ -435,6 +481,8 @@
   const SPREAD = 1.6;   // degrees a shot may pass outside a clay's edge and still break it
   const AIM_BACK = 120; // a thumb shot goes where the crosshair was this many milliseconds earlier, before the thumb's
                         // own movement pulled the hand off the target
+  const FORGIVE = 150;  // and it may count from anywhere the crosshair was in the 150 ms before that: the training page's
+                        // "forgiving press", for a crosshair that had just slipped off the target
   const clayGeo = new THREE.CylinderGeometry(1, 0.8, 0.28, 24), clayMat = new THREE.MeshLambertMaterial({ color: 0xff7a1f, emissive: 0x7a2c00 }), bitGeo = new THREE.BoxGeometry(1, 0.5, 1);
   const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
 
@@ -483,6 +531,21 @@
     for (let i = aimLog.length - 1; i >= 0; i--) if (aimLog[i].t <= t) return out.copy(aimLog[i].d);
     return out.copy(aimLog.length ? aimLog[0].d : blade.dir);
   }
+  // how far outside the nearest clay's edge an aim passes, in degrees (negative: inside the clay)
+  function offClay(dir) {
+    let best = 99;
+    for (const c of S.clays) { const d = c.m.position.length(), off = dir.angleTo(tmpA.copy(c.m.position).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D; if (off < best) best = off; }
+    return best;
+  }
+  // the aim a shot is given: where the crosshair was at time t, or, if that misses, the place it came nearest a clay in
+  // the 150 ms before
+  function shotAim(t, out) {
+    aimAt(t, out);
+    let best = offClay(out);
+    if (best <= SPREAD) return out;
+    for (const e of aimLog) if (e.t <= t && e.t >= t - FORGIVE) { const off = offClay(e.d); if (off < best) { best = off; out.copy(e.d); } }
+    return best <= SPREAD ? out : aimAt(t, out);
+  }
   function updateBlade(now, dt) {
     const was = blade.ok;
     tmpB.copy(blade.dir);
@@ -490,9 +553,7 @@
       if (handRaw.ok) {
         handNow(now, hn);
         videoDir(hn[0], hn[1], tmpA).applyQuaternion(camera.quaternion);
-        // steadier than a blade: heavy smoothing while the hand is nearly still, easing off as it moves
-        const a = was ? Math.min(1, 0.22 + blade.speed / 120) : 1;
-        blade.dir.lerp(tmpA, a).normalize();
+        blade.dir.copy(tmpA); // already smoothed where the fingertip was found
         blade.ok = true; blade.lastSeen = now;
       } else if (now - blade.lastSeen > 350) blade.ok = false;
     } else {
@@ -516,7 +577,7 @@
     if (!blade.ok) return sfx('dry');
     const m = S.m;
     m.shots++; m[src]++;
-    if (src === 'thumb') aimAt(now - AIM_BACK, shot.dir); else shot.dir.copy(blade.dir);
+    shotAim(src === 'thumb' ? now - AIM_BACK : now, shot.dir);
     let hits = 0, nearest = 99;
     for (let i = S.clays.length - 1; i >= 0; i--) {
       const c = S.clays[i], d = c.m.position.length(), off = shot.dir.angleTo(tmpA.copy(c.m.position).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D;
@@ -566,7 +627,7 @@
   }
   function startRound() {
     S.clays.forEach((c) => scene.remove(c.m)); S.clays = [];
-    S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
+    S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, flickers: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
     S.plan = makePlan(CLAYS); S.cued = false; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
     panel.visible = false; hud.visible = true;
     recentre = true;
@@ -577,13 +638,14 @@
     const row = {
       v: 1, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
-      trigger: { thumb: m.thumb, tap: m.tap, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi },
+      trigger: { thumb: m.thumb, tap: m.tap, flickers: m.flickers, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
       screen: [innerWidth, innerHeight], cam: S.cam || '', fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
     store.set('skeetVRRounds', rows.slice(-200));
+    if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger', { hi: trig.hi, lo: trig.lo }); // the learned thumb levels, for next time
     S.endLines = [`Hit ${m.hit} of ${m.thrown} · best run ${m.best}`, `${m.shots} shots · ${m.shots ? Math.round(row.acc * 100) : 0}% hit`].concat(
       S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time`] : [], ['Look here, or fire, to play again']);
     S.phase = 'end'; S.dwell = 0; S.endAt = performance.now();
@@ -698,6 +760,7 @@
       cross.quaternion.copy(camera.quaternion);
       cross.scale.setScalar(1 + shot.kick * 0.9);
       crossMat.color.setHex(S.mode === 'hand' && !trig.cocked ? 0x9fb0c6 : 0xffd88a);
+      crossMat.opacity = S.mode === 'hand' && handRaw.edge < 0.08 ? 0.4 : 0.95; // faint where the camera is about to lose the hand
     }
     tracer.visible = now < shot.until;
 

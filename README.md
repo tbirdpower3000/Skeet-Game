@@ -27,22 +27,41 @@ turn the phone sideways and put it in the viewer. Fire once to begin.
   double. A beep comes just before each throw.
 - When a round ends, look at the board for two seconds or fire to play again.
 
-## How the trigger works
+## How the trigger and aim work
+
+These carry over what the hand-control training page and Hand Hub learned about
+pinches and cursors:
 
 - **The reading.** How far the thumb's tip is from the base of the index finger, as
-  a share of the hand's length, measured on the tracker's 3D hand so that tilting
-  the hand changes it little.
-- **Learning "thumb up".** The largest readings lately count as up. The trigger is
-  cocked above 75% of that and fires on the way down through 55%, so one drop of
-  the thumb is one shot.
+  a share of the hand's size, measured on the tracker's 3D hand so that tilting the
+  hand changes it little. Hand size is the average of two bones, which is steadier
+  than one. The reading goes through the One Euro filter (3 Hz, beta 1).
+- **Two levels with a gap.** The shot fires on the way down, 35% of the way up from
+  thumb-down; the trigger is cocked again 60% of the way up. A reading hovering near
+  one level can't fire twice.
+- **Learning your thumb.** "Up" and "down" are learned from where your thumb comes to
+  rest, and kept for next time (`skeetVRTrigger`), so a thumb that only drops part of
+  the way still gets a trigger that fits it.
+- **Deliberate shots.** A shot counts only if the thumb had been up for 150 ms first.
 - **Keeping the shot on target.** Dropping the thumb nudges the whole hand, so a
   thumb shot goes where the crosshair was 120 ms earlier.
+- **Forgiving shots.** If that aim misses, the shot may count from anywhere the
+  crosshair was in the 150 ms before it.
+- **Steady crosshair.** The fingertip goes through a median of three and the One Euro
+  filter (0.8 Hz, beta 3), with more smoothing near the edge of the camera's view,
+  where the crosshair also fades to warn that the hand is about to be lost.
 - A shot breaks any clay it passes within 1.6° of. Clays are drawn several times
   the size of real ones so they can be seen and hit 10 m away.
 
+Not carried over: the training page's "virtual fingertip" (a fingertip rebuilt from
+the palm). It was made for a hand facing a webcam; here the camera looks along the
+pointing finger from behind, where the palm's direction in the picture is too short
+to rebuild a fingertip from.
+
 Each round is saved in the browser (`skeetVRRounds`): clays hit, shots, thumb and
 button shots, the range of thumb readings, how far misses passed from the nearest
-clay, and how often the hand was lost. **Copy results** on the setup page copies
+clay, flickers that were ignored, the trigger's learned levels, and how often the
+hand was lost. **Copy results** on the setup page copies
 them, which is what is needed to tune the trigger.
 
 ## Status
