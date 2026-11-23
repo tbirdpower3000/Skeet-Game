@@ -222,7 +222,7 @@
   const hud = textPlane(1.15, 0.2, 640, 110); // score, fixed low in the view
   hud.position.set(0, -0.62, -2);
   camera.add(hud);
-  const note = textPlane(1.5, 0.34, 800, 180); // short prompts, fixed in the view
+  const note = textPlane(1.7, 0.46, 900, 244); // short prompts, fixed in the view
   note.position.set(0, 0.5, -2.2);
   note.visible = false;
   camera.add(note);
@@ -735,7 +735,8 @@
     } else if (S.phase === 'wait') {
       // nothing starts until a shot is fired, so there is time to put the phone in the viewer
       note.visible = true;
-      drawText(note, ['Ready?', fireWord + ' to start']);
+      // the third line says what the game is waiting for or why it is not using the hand, so a problem can be seen from inside the viewer
+      drawText(note, ['Ready?', fireWord + ' to start'].concat(S.why ? [S.why] : S.mode === 'hand' && !blade.ok ? ['No hand in view yet'] : []));
     } else if (S.phase === 'count') {
       const left = 3 - (now - S.count) / 1000;
       note.visible = true;
@@ -798,17 +799,17 @@
       }
     } catch (e) {}
     window.addEventListener('deviceorientation', onOrient);
-    S.mode = want;
+    S.mode = want; S.why = '';
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
       try { S.stream = await startCamera(); } catch (e) {
         S.stream = null; S.showRoom = false;
-        if (want === 'hand') { S.mode = 'head'; say('The camera could not be used, so the crosshair follows your gaze.'); }
+        if (want === 'hand') { S.mode = 'head'; S.why = 'No camera: aiming by gaze'; say('The camera could not be used (' + ((e && e.name) || 'error') + '), so the crosshair follows your gaze.'); }
       }
     }
     if (S.mode === 'hand' && !landmarker) {
       say('Loading the hand tracker…');
-      try { await loadHands(); } catch (e) { S.mode = 'head'; say('The hand tracker could not be loaded, so the crosshair follows your gaze.'); }
+      try { await loadHands(); } catch (e) { S.mode = 'head'; S.why = 'No hand tracker: aiming by gaze'; say('The hand tracker could not be loaded, so the crosshair follows your gaze.'); }
     }
     vplane.visible = !!(S.showRoom && S.stream);
     room.visible = !vplane.visible;
