@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#070b14" />
+<title>Skeet VR</title>
+<style>
+  :root { --space: #070b14; --panel: #101827; --ink: #e9eef5; --muted: #9fb0c6; --gold: #ffd88a; --rule: #26344a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--space); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  [hidden] { display: none !important; }
+  #setup { max-width: 640px; margin: 0 auto; padding: 20px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 22px 0 6px; color: var(--gold); }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 0.92rem; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-top: 12px; }
+  label.opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; }
+  label.opt input { margin-top: 5px; width: 18px; height: 18px; flex: none; }
+  button { font: inherit; color: var(--ink); background: #1b2740; border: 1px solid var(--rule); border-radius: 10px; padding: 10px 16px; }
+  button.primary { background: var(--gold); color: #1a1407; border-color: var(--gold); font-weight: 700; width: 100%; padding: 14px; font-size: 1.1rem; margin-top: 14px; }
+  .scroll { overflow-x: auto; }
+  #qr { background: #fff; padding: 12px; border-radius: 10px; width: min(240px, 70vw); }
+  #qr svg { display: block; width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  #vr { position: fixed; inset: 0; background: #000; touch-action: none; }
+  #view { position: absolute; left: 50%; top: 50%; overflow: hidden; }
+  #vr canvas { display: block; width: 100%; height: 100%; }
+  #mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.35); }
+  #leave { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); font-size: 0.75rem; padding: 4px 10px; opacity: 0.55; }
+  #turn { position: fixed; inset: 0; background: rgba(7, 11, 20, 0.94); display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 1.1rem; }
+  video { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<main id="setup">
+  <h1>🎯 Skeet VR</h1>
+  <p class="muted">For a phone in a Google Cardboard viewer. Clay targets fly across in front of you; shoot them with a finger gun before they land.</p>
+
+  <div class="card">
+    <h2 style="margin-top:0">Aim</h2>
+    <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
+    <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Press the viewer's button to fire. No camera needed.</span></span></label>
+    <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the targets instead of the virtual range.</span></span></label>
+    <label class="opt"><input type="checkbox" id="sound" checked /><span><b>Sound</b><br /><span class="muted">On an iPhone the side switch must not be on silent.</span></span></label>
+    <button class="primary" id="go">Start</button>
+    <p class="muted" id="status" role="status"></p>
+  </div>
+
+  <h2>How to play</h2>
+  <p class="muted">1. Press Start and allow motion (and the camera, if asked). 2. Turn the phone sideways and put it in the viewer. 3. Fire once to begin (drop your thumb, or press the viewer's button). 4. A round is 20 clays, some thrown two at a time. A beep comes just before each throw. The viewer's button always fires too. Turn the phone upright to come back here.</p>
+
+  <h2>Open on your phone</h2>
+  <p class="muted">Scan this with the phone's camera. It opens this page.</p>
+  <div id="qr" role="img" aria-label="QR code for this page's address"></div>
+  <p class="muted" id="qrUrl" style="word-break: break-all"></p>
+
+  <h2>Your rounds</h2>
+  <div class="scroll"><table id="rounds"></table></div>
+  <p><button id="copy">Copy results</button> <button id="clear">Clear</button></p>
+  <p class="muted">Rounds are kept in this browser only. The camera picture is used on this phone to find your hand and is never stored or sent anywhere. Each round records clays hit, shots fired, how the thumb trigger read, and how often the hand was lost, so the trigger can be tuned.</p>
+</main>
+
+<div id="vr" hidden>
+  <div id="view">
+    <div id="mid" hidden></div>
+    <button id="leave">Exit</button>
+  </div>
+</div>
+<div id="turn" hidden><div style="font-size:3rem">📱↻</div><div>Turn the phone sideways and put it in the viewer.</div><div class="muted">If this message stays, allow motion when asked, or turn off Portrait Orientation Lock.</div><button id="turnExit">Back to setup</button></div>
+<video id="vid" playsinline muted></video>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const D = Math.PI / 180;
+  const Q = new URLSearchParams(location.search);
+  const TOUCH = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const STEREO = Q.has('stereo') ? Q.get('stereo') !== '0' : TOUCH;
+  const CLAYS = +Q.get('n') || 20; // clays in a round
+  const MP = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  const say = (t) => ($('status').textContent = t || '');
+
+  // ---------- setup screen: past rounds ----------
+  function drawRounds() {
+    const rows = store.get('skeetVRRounds', []);
+    const t = $('rounds');
+    if (!rows.length) { t.innerHTML = '<tr><td class="muted" style="text-align:left">No rounds yet.</td></tr>'; return; }
+    t.innerHTML =
+      '<tr><th>When</th><th>Aim</th><th>Hit</th><th>Shots</th><th>Shots that hit</th><th>Thumb shots</th><th>Hand lost</th></tr>' +
+      rows.slice(-8).reverse().map((r) =>
+        `<tr><td>${new Date(r.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${r.mode === 'hand' ? 'Finger gun' : 'Gaze'}</td><td>${r.hit}/${r.thrown}</td><td>${r.shots}</td><td>${r.shots ? Math.round(r.acc * 100) + '%' : '–'}</td><td>${r.mode === 'hand' ? r.trigger.thumb : '–'}</td><td>${r.mode === 'hand' && r.hand ? Math.round(r.hand.lostPct * 100) + '%' : '–'}</td></tr>`).join('');
+  }
+  drawRounds();
+  // a QR code for this page's own address (without any ?options), so it can be opened on the phone by scanning the screen
+  (function () {
+    const url = location.origin + location.pathname;
+    $('qrUrl').textContent = url;
+    const sc = document.createElement('script');
+    sc.src = 'vendor/qrcode-generator.js'; // qrcode-generator 1.4.4, Kazuhiko Arase, MIT licence
+    sc.onload = () => {
+      try {
+        const q = qrcode(0, 'M');
+        q.addData(url);
+        q.make();
+        $('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+      } catch (e) { $('qr').hidden = true; }
+    };
+    sc.onerror = () => { $('qr').hidden = true; };
+    document.head.appendChild(sc);
+  })();
+  $('copy').onclick = async () => {
+    const txt = JSON.stringify({ rounds: store.get('skeetVRRounds', []) }, null, 1);
+    try { await navigator.clipboard.writeText(txt); say('Results copied.'); } catch (e) { say('Copying is blocked here.'); }
+  };
+  let clearArmed = 0;
+  $('clear').onclick = () => {
+    if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
+    store.set('skeetVRRounds', []);
+    $('clear').textContent = 'Clear'; clearArmed = 0; drawRounds();
+  };
+
+  // ---------- scene ----------
+  // Edge smoothing is left to the screen's own density on a phone (it is costly there); the graphics chip is asked for its
+  // fast mode. The picture is drawn at up to twice the page's resolution and that is lowered while frames run slow.
+  const PR_MAX = Math.min(devicePixelRatio || 1, 2);
+  const renderer = new THREE.WebGLRenderer({ antialias: (devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(PR_MAX);
+  const perf = { pr: PR_MAX, ft: 16.7, hold: 0, upAfter: 0, n: 0, sum: 0 };
+  function pace(now, gap) {
+    if (!(gap > 0 && gap < 500)) return;
+    perf.ft += (gap - perf.ft) * 0.05;
+    if (S.phase === 'play') { perf.n++; perf.sum += gap; }
+    if (now < perf.hold) return;
+    let pr = perf.pr;
+    if (perf.ft > 21 && pr > 1) { pr = Math.max(1, pr - 0.25); perf.upAfter = now + 10000; }
+    else if (perf.ft < 17.5 && pr < PR_MAX && now > perf.upAfter) pr = Math.min(PR_MAX, pr + 0.25);
+    if (pr !== perf.pr) { perf.pr = pr; renderer.setPixelRatio(pr); perf.hold = now + 1500; perf.ft = 16.7; }
+  }
+  renderer.autoClear = false;
+  $('view').insertBefore(renderer.domElement, $('view').firstChild);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(78, 1, 0.05, 200);
+  scene.add(camera);
+  const stereo = new THREE.StereoCamera();
+  stereo.aspect = 0.5;
+  stereo.eyeSep = 0.064;
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.0));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+  sun.position.set(1, 3, 2);
+  scene.add(sun);
+
+  // the virtual range: a dark dome and a floor grid, hidden when the camera picture is shown
+  const room = new THREE.Group();
+  scene.add(room);
+  room.add(new THREE.Mesh(new THREE.SphereGeometry(60, 32, 16), new THREE.MeshBasicMaterial({ color: 0x0b1424, side: THREE.BackSide })));
+  const grid = new THREE.GridHelper(60, 60, 0x35507a, 0x1c2c47);
+  grid.position.y = -1.6;
+  room.add(grid);
+  // the two houses the clays are thrown from: a tall one on the left and a low one on the right, as on a skeet field
+  const HIGH = new THREE.Vector3(-7.8, 1.2, -10), LOW = new THREE.Vector3(7.8, -0.9, -10);
+  const houseMat = new THREE.MeshLambertMaterial({ color: 0x3a5278 });
+  const hh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.2, 1.3), houseMat); hh.position.set(-8.6, 0, -10); scene.add(hh);
+  const lh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 1.3), houseMat); lh.position.set(8.6, -1.0, -10); scene.add(lh);
+
+  // the rear camera picture, far behind everything and fixed to the head
+  const vid = $('vid');
+  const vtex = new THREE.VideoTexture(vid);
+  const vplane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: vtex, depthTest: false, depthWrite: false }));
+  vplane.renderOrder = -10;
+  vplane.position.z = -30;
+  vplane.visible = false;
+  camera.add(vplane);
+  const pic = { lx: 1, ly: 1, rz: 0 }; // the picture's width and height 30 m out, and its quarter turn when the phone's rotation is locked
+
+  function textPlane(w, h, cw, ch) {
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const tex = new THREE.CanvasTexture(c);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+    m.renderOrder = 20;
+    m.userData = { c, x: c.getContext('2d'), tex, last: '' };
+    return m;
+  }
+  function drawText(m, lines, opt) {
+    const key = JSON.stringify(lines) + (opt && opt.ring != null ? opt.ring.toFixed(2) : '');
+    if (key === m.userData.last) return;
+    m.userData.last = key;
+    const { c, x, tex } = m.userData;
+    x.clearRect(0, 0, c.width, c.height);
+    if (!opt || opt.bg !== false) {
+      x.fillStyle = 'rgba(7,11,20,0.72)';
+      const r = 26;
+      x.beginPath(); x.moveTo(r, 0); x.arcTo(c.width, 0, c.width, c.height, r); x.arcTo(c.width, c.height, 0, c.height, r); x.arcTo(0, c.height, 0, 0, r); x.arcTo(0, 0, c.width, 0, r); x.fill();
+    }
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    const n = lines.length;
+    lines.forEach((ln, i) => {
+      const big = i === 0;
+      x.font = `${big ? 700 : 500} ${big ? Math.min(64, c.height / (n + 0.6)) : Math.min(40, c.height / (n + 1.6))}px system-ui, sans-serif`;
+      x.fillStyle = big ? '#ffd88a' : '#e9eef5';
+      x.fillText(ln, c.width / 2, (c.height * (i + 0.5 + (big ? 0 : 0.15))) / n);
+    });
+    if (opt && opt.ring != null) {
+      x.strokeStyle = '#ffd88a'; x.lineWidth = 8;
+      x.beginPath(); x.arc(c.width - 50, 50, 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * opt.ring); x.stroke();
+    }
+    tex.needsUpdate = true;
+  }
+  const hud = textPlane(1.15, 0.2, 640, 110); // score, fixed low in the view
+  hud.position.set(0, -0.62, -2);
+  camera.add(hud);
+  const note = textPlane(1.5, 0.34, 800, 180); // short prompts, fixed in the view
+  note.position.set(0, 0.5, -2.2);
+  note.visible = false;
+  camera.add(note);
+  const panel = textPlane(2.4, 1.3, 960, 520); // the end-of-round board, fixed in the room straight ahead
+  panel.position.set(0, 0.1, -2.6);
+  panel.visible = false;
+  scene.add(panel);
+
+  // the crosshair: a ring and a dot 2.4 m out along the aim. Gold when a shot is ready, grey while the thumb is down.
+  const BR = 2.4;
+  const cross = new THREE.Group();
+  const crossMat = new THREE.MeshBasicMaterial({ color: 0xffd88a, depthTest: false, transparent: true, opacity: 0.95 });
+  cross.add(new THREE.Mesh(new THREE.RingGeometry(0.045, 0.058, 32), crossMat), new THREE.Mesh(new THREE.CircleGeometry(0.009, 12), crossMat));
+  cross.children.forEach((c) => (c.renderOrder = 21));
+  scene.add(cross);
+  // a shot's streak of light, from just below the view to where it was aimed
+  const tracerGeo = new THREE.BufferGeometry();
+  tracerGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const tracer = new THREE.Line(tracerGeo, new THREE.LineBasicMaterial({ color: 0xfff3c4, transparent: true, depthTest: false }));
+  tracer.frustumCulled = false; tracer.renderOrder = 18; tracer.visible = false;
+  scene.add(tracer);
+
+  // With the phone's rotation lock on, the page stays upright when the phone is turned sideways. The motion sensors still
+  // show which way it was turned, so the whole view is drawn sideways to match (rot is that quarter turn, in degrees).
+  let rot = 0;
+  function resize() {
+    const pw = innerWidth, ph = innerHeight, pageLand = !TOUCH || pw > ph;
+    if (pageLand) rot = 0;
+    const turned = !pageLand && rot !== 0, w = turned ? ph : pw, h = turned ? pw : ph;
+    S.w = w; S.h = h; S.ready = pageLand || turned;
+    const st = $('view').style;
+    st.width = w + 'px'; st.height = h + 'px';
+    st.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const eyeAsp = (STEREO ? w / 2 : w) / h;
+    // the camera picture is scaled to cover each eye's view (the overflow falls outside the view). With rotation lock on,
+    // the camera's picture stays upright to the phone, so it is turned a quarter to stay upright to the room.
+    const viewH = 2 * 30 * Math.tan((camera.fov * D) / 2), viewW = viewH * eyeAsp;
+    const va = vid.videoWidth && vid.videoHeight ? vid.videoWidth / vid.videoHeight : 16 / 9;
+    const k = turned ? Math.max(viewW, viewH / va) : Math.max(viewH, viewW / va);
+    pic.lx = k * va; pic.ly = k; pic.rz = turned ? rot * D : 0;
+    vplane.scale.set(pic.lx, pic.ly, 1);
+    vplane.rotation.z = pic.rz;
+    S.eyeAsp = eyeAsp;
+    $('turn').hidden = !(S.on && !S.ready);
+  }
+
+  // ---------- head tracking ----------
+  const devQ = new THREE.Quaternion(), yawQ = new THREE.Quaternion();
+  const q1 = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2), zee = new THREE.Vector3(0, 0, 1), eul = new THREE.Euler(), q0 = new THREE.Quaternion();
+  let haveMotion = false, drag = { yaw: 0, pitch: 0 }, recentre = true;
+  const fwd = new THREE.Vector3(), upY = new THREE.Vector3(0, 1, 0);
+  function onOrient(e) {
+    if (e.alpha == null) return;
+    haveMotion = true;
+    eul.set(e.beta * D, e.alpha * D, -e.gamma * D, 'YXZ');
+    devQ.setFromEuler(eul).multiply(q1);
+    let o = (screen.orientation && screen.orientation.angle) != null ? screen.orientation.angle : window.orientation || 0;
+    if (TOUCH && innerHeight > innerWidth) {
+      // the page is upright: is the phone itself on its side? Its right-hand edge points up or down when it is.
+      const ry = fwd.set(1, 0, 0).applyQuaternion(devQ).y, nr = ry > 0.6 ? 90 : ry < -0.6 ? -90 : Math.abs(ry) < 0.3 ? 0 : rot;
+      if (nr !== rot) { rot = nr; resize(); }
+      o = rot;
+    }
+    devQ.multiply(q0.setFromAxisAngle(zee, -o * D));
+  }
+  function applyHead() {
+    if (haveMotion) {
+      if (recentre) {
+        fwd.set(0, 0, -1).applyQuaternion(devQ);
+        yawQ.setFromAxisAngle(upY, -Math.atan2(-fwd.x, -fwd.z));
+        recentre = false;
+      }
+      camera.quaternion.copy(yawQ).multiply(devQ);
+    } else {
+      eul.set(drag.pitch, drag.yaw, 0, 'YXZ');
+      camera.quaternion.setFromEuler(eul);
+    }
+    camera.updateMatrixWorld(true);
+  }
+  let pd = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => { pd = [e.clientX, e.clientY, false]; });
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!pd || haveMotion) return;
+    const dx = e.clientX - pd[0], dy = e.clientY - pd[1];
+    if (Math.abs(dx) + Math.abs(dy) > 4) pd[2] = true;
+    drag.yaw -= dx * 0.004; drag.pitch = Math.max(-1.2, Math.min(1.2, drag.pitch - dy * 0.004));
+    pd[0] = e.clientX; pd[1] = e.clientY;
+  });
+  renderer.domElement.addEventListener('pointerup', () => {
+    if (pd && !pd[2]) fire('tap'); // the viewer's button is a tap on the screen
+    pd = null;
+  });
+
+  // ---------- hand tracking (rear camera) ----------
+  let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
+  const handRaw = { ok: false, u: 0, v: 0, vu: 0, vv: 0, t: 0, label: '' };
+  // the fingertip now: the last place it was found, carried forward at its speed for at most a twentieth of a second.
+  // The camera sees the hand less often than the screen redraws, so this keeps the crosshair moving every frame.
+  function handNow(now, o) {
+    const a = Math.min(0.05, Math.max(0, (now - handRaw.t) / 1000)), cl = (x) => Math.max(0, Math.min(1, x));
+    o[0] = cl(handRaw.u + handRaw.vu * a); o[1] = cl(handRaw.v + handRaw.vv * a);
+    return o;
+  }
+  const hn = [0, 0];
+  // One rear camera is opened, and always the one with the widest view. The phone lists its rear cameras by name once the
+  // camera is allowed. A separate ultra-wide (0.5x) camera is taken first; failing that, a combined camera ("Triple",
+  // "Dual Wide") that can zoom out to the ultra-wide lens; failing that, the ordinary one. Whichever opens is then zoomed
+  // out as far as it goes, and a candidate is kept only if it really is a rear camera.
+  const camSize = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  const openCam = (how) => navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({}, how, camSize) });
+  const stopCam = (st) => st.getTracks().forEach((t) => t.stop());
+  async function zoomOut(track) {
+    try {
+      const z = track.getCapabilities && track.getCapabilities().zoom;
+      if (z && z.min != null && track.getSettings().zoom > z.min) await track.applyConstraints({ advanced: [{ zoom: z.min }] });
+    } catch (e) {}
+  }
+  async function startCamera() {
+    let st = await openCam({ facingMode: { ideal: 'environment' } });
+    let track = st.getVideoTracks()[0];
+    try {
+      const front = /front|selfie|facetime|user/i, cur = track.getSettings ? track.getSettings().deviceId : null;
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput' && d.deviceId && !front.test(d.label));
+      const rank = (d) => (/ultra/i.test(d.label) ? 0 : /triple/i.test(d.label) ? 1 : /dual.*wide|wide.*dual/i.test(d.label) ? 2 : 9);
+      const wider = cams.filter((d) => rank(d) < 9 && rank(d) < rank({ label: track.label || '' })).sort((x, y) => rank(x) - rank(y));
+      for (const d of wider) {
+        if (d.deviceId === cur) break;
+        stopCam(st);
+        let got = null;
+        try { got = await openCam({ deviceId: { exact: d.deviceId } }); } catch (e) {}
+        const facing = got && got.getVideoTracks()[0].getSettings ? got.getVideoTracks()[0].getSettings().facingMode : null;
+        if (got && facing !== 'user') { st = got; track = st.getVideoTracks()[0]; break; }
+        if (got) stopCam(got);
+        st = await openCam({ facingMode: { ideal: 'environment' } });
+        track = st.getVideoTracks()[0];
+      }
+    } catch (e) {}
+    if (track.readyState === 'ended') { st = await openCam({ facingMode: { ideal: 'environment' } }); track = st.getVideoTracks()[0]; }
+    await zoomOut(track);
+    S.cam = track.label || '';
+    vid.srcObject = st;
+    await vid.play();
+    return st;
+  }
+  async function loadHands() {
+    const { FilesetResolver, HandLandmarker } = await import(MP + '/vision_bundle.mjs');
+    const fs = await FilesetResolver.forVisionTasks(MP + '/wasm');
+    landmarker = await HandLandmarker.createFromOptions(fs, {
+      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
+      runningMode: 'VIDEO', numHands: 1, minHandDetectionConfidence: 0.5, minTrackingConfidence: 0.5,
+    });
+  }
+
+  // The thumb trigger. The reading is how far the thumb's tip is from the base of the index finger, as a share of the
+  // hand's length (wrist to middle knuckle), measured on the tracker's 3D hand where it has one so that tilting the hand
+  // changes it little. Thumb up is a large reading, thumb down on the hand a small one. "Up" is learned as you play (the
+  // largest readings lately); the trigger is cocked above 75% of that and fires on the way down through 55%. One drop of
+  // the thumb is one shot: it must come back up before the next.
+  const trig = { r: 0, hi: 0.6, lo: 9, cocked: false, seen: false };
+  function thumbReading(res) {
+    const w = res.worldLandmarks && res.worldLandmarks[0], l = w || res.landmarks[0];
+    const ax = w ? 1 : (vid.videoWidth || 16) / (vid.videoHeight || 9);
+    const P = (i) => [l[i].x * ax, l[i].y, w ? l[i].z : 0];
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.sqrt(dot(a, a));
+    const t = P(4), a = P(5), ab = sub(P(6), a), at = sub(t, a);
+    const k = Math.max(0, Math.min(1, dot(at, ab) / (dot(ab, ab) || 1)));
+    const size = len(sub(P(9), P(0)));
+    return size > 1e-6 ? len(sub(at, [ab[0] * k, ab[1] * k, ab[2] * k])) / size : null;
+  }
+  function feedTrigger(r) {
+    if (r == null || !isFinite(r)) return;
+    trig.r = trig.seen ? trig.r + (r - trig.r) * 0.6 : r;
+    trig.seen = true;
+    // "up" follows the largest readings quickly and forgets them slowly, and is never taken to be very small
+    trig.hi = Math.max(0.4, trig.r > trig.hi ? trig.hi + (trig.r - trig.hi) * 0.5 : trig.hi - (trig.hi - 0.4) * 0.002);
+    if (trig.r < trig.lo) trig.lo = trig.r;
+    if (S.m) { if (trig.r > S.m.thumbHi) S.m.thumbHi = trig.r; if (trig.r < S.m.thumbLo) S.m.thumbLo = trig.r; }
+    if (!trig.cocked && trig.r > 0.75 * trig.hi) trig.cocked = true;
+    else if (trig.cocked && trig.r < 0.55 * trig.hi) { trig.cocked = false; fire('thumb'); }
+  }
+  function trackHand(now) {
+    if (!landmarker || vid.readyState < 2 || vid.currentTime === lastVT) return;
+    if (skip) { skip = false; return; } // a slow phone looks for the hand on every other picture
+    lastVT = vid.currentTime;
+    const t0 = performance.now();
+    let res = null;
+    try { res = landmarker.detectForVideo(vid, now); } catch (e) { return; }
+    const ms = performance.now() - t0;
+    detMs += ms; detN++;
+    skip = ms > 28;
+    const lm = res && res.landmarks && res.landmarks[0];
+    if (lm) {
+      const ds = (now - handRaw.t) / 1000;
+      if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vu += ((lm[8].x - handRaw.u) / ds - handRaw.vu) * 0.5; handRaw.vv += ((lm[8].y - handRaw.v) / ds - handRaw.vv) * 0.5; }
+      else handRaw.vu = handRaw.vv = 0;
+      handRaw.ok = true; handRaw.u = lm[8].x; handRaw.v = lm[8].y; handRaw.t = now;
+      handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
+      feedTrigger(thumbReading(res));
+    } else { handRaw.ok = false; trig.cocked = false; trig.seen = false; }
+    if (S.phase === 'play') { if (lm) S.m.handFrames++; else S.m.lostFrames++; }
+  }
+
+  // ---------- game state ----------
+  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, w: 1, h: 1, ready: true, clays: [], bits: [], m: null, plan: [], next: 0, cued: false, dwell: 0, count: 0, endAt: 0, stream: null, cam: '' };
+  const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), speed: 0, lastSeen: 0 };
+  const G = 1.6;        // gravity on a clay: gentle, so it hangs in the air long enough to aim
+  const CLAY_R = 0.28;  // a clay's radius in metres: several times a real one, so it can be seen and hit 10 m away
+  const SPREAD = 1.6;   // degrees a shot may pass outside a clay's edge and still break it
+  const AIM_BACK = 120; // a thumb shot goes where the crosshair was this many milliseconds earlier, before the thumb's
+                        // own movement pulled the hand off the target
+  const clayGeo = new THREE.CylinderGeometry(1, 0.8, 0.28, 24), clayMat = new THREE.MeshLambertMaterial({ color: 0xff7a1f, emissive: 0x7a2c00 }), bitGeo = new THREE.BoxGeometry(1, 0.5, 1);
+  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
+
+  // the order of throws: singles from each house in turn, with a double (one from each house at once) every third throw
+  function makePlan(n) {
+    const plan = [];
+    let left = n, k = 0;
+    while (left > 0) {
+      const dbl = left >= 2 && k % 3 === 2;
+      plan.push(dbl ? ['H', 'L'] : [k % 2 ? 'L' : 'H']);
+      left -= dbl ? 2 : 1; k++;
+    }
+    return plan;
+  }
+  function launch(house) {
+    const from = house === 'H' ? HIGH : LOW;
+    // each clay crosses in front of you: it is aimed at a point about 9.5 m ahead, a little above eye height, and carries on
+    const cx = (Math.random() * 2 - 1) * 1.5, cy = 1.4 + Math.random() * 1.2, cz = -9.5 + (Math.random() * 2 - 1) * 1.2, tc = 1.5 + Math.random() * 0.3;
+    const m = new THREE.Mesh(clayGeo, clayMat);
+    m.scale.setScalar(CLAY_R);
+    m.position.copy(from);
+    scene.add(m);
+    S.clays.push({ m, v: new THREE.Vector3((cx - from.x) / tc, (cy - from.y) / tc + 0.5 * G * tc, (cz - from.z) / tc), age: 0, near: 99 });
+    S.m.thrown++;
+    sfx('launch', panOf(from));
+  }
+  function shatter(c) {
+    scene.remove(c.m);
+    for (let i = 0; i < 8; i++) {
+      const g = new THREE.Mesh(bitGeo, clayMat);
+      g.scale.setScalar(CLAY_R * (0.25 + Math.random() * 0.25));
+      g.position.copy(c.m.position);
+      scene.add(g);
+      S.bits.push({ g, v: c.v.clone().multiplyScalar(0.6).add(tmpC.set(Math.random() - 0.5, Math.random() - 0.2, Math.random() - 0.5).multiplyScalar(5)), spin: (Math.random() - 0.5) * 16, life: 0.9 });
+    }
+    sfx('break', panOf(c.m.position));
+  }
+  // direction in the camera's frame for a point in the camera picture (0..1 across and down)
+  function videoDir(u, v, out) {
+    const lx = (u - 0.5) * pic.lx, ly = -(v - 0.5) * pic.ly, c = Math.cos(pic.rz), sn = Math.sin(pic.rz);
+    return out.set(lx * c - ly * sn, lx * sn + ly * c, -30).normalize();
+  }
+  // where the crosshair has been lately, so a thumb shot can go where it was just before the thumb moved
+  const aimLog = [];
+  function aimAt(t, out) {
+    for (let i = aimLog.length - 1; i >= 0; i--) if (aimLog[i].t <= t) return out.copy(aimLog[i].d);
+    return out.copy(aimLog.length ? aimLog[0].d : blade.dir);
+  }
+  function updateBlade(now, dt) {
+    const was = blade.ok;
+    tmpB.copy(blade.dir);
+    if (S.mode === 'hand') {
+      if (handRaw.ok) {
+        handNow(now, hn);
+        videoDir(hn[0], hn[1], tmpA).applyQuaternion(camera.quaternion);
+        // steadier than a blade: heavy smoothing while the hand is nearly still, easing off as it moves
+        const a = was ? Math.min(1, 0.22 + blade.speed / 120) : 1;
+        blade.dir.lerp(tmpA, a).normalize();
+        blade.ok = true; blade.lastSeen = now;
+      } else if (now - blade.lastSeen > 350) blade.ok = false;
+    } else {
+      blade.dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      blade.ok = true;
+    }
+    const inst = was && blade.ok && dt > 0 ? (tmpB.angleTo(blade.dir) / D) / dt : 0;
+    blade.speed += (Math.min(inst, 2500) - blade.speed) * 0.5;
+    if (blade.ok) { aimLog.push({ t: now, d: blade.dir.clone() }); while (aimLog.length && now - aimLog[0].t > 500) aimLog.shift(); }
+    else aimLog.length = 0;
+  }
+
+  // a shot, from the thumb trigger or the viewer's button. Before and after a round it starts the round instead.
+  const shot = { kick: 0, until: 0, last: 0, dir: new THREE.Vector3() };
+  function fire(src) {
+    const now = performance.now();
+    if (!S.on || !S.ready) return;
+    if (S.phase === 'wait' || (S.phase === 'end' && now > S.endAt + 1500)) return startRound();
+    if (S.phase !== 'play' || now - shot.last < 250) return;
+    shot.last = now;
+    if (!blade.ok) return sfx('dry');
+    const m = S.m;
+    m.shots++; m[src]++;
+    if (src === 'thumb') aimAt(now - AIM_BACK, shot.dir); else shot.dir.copy(blade.dir);
+    let hits = 0, nearest = 99;
+    for (let i = S.clays.length - 1; i >= 0; i--) {
+      const c = S.clays[i], d = c.m.position.length(), off = shot.dir.angleTo(tmpA.copy(c.m.position).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D;
+      if (off < nearest) nearest = off;
+      if (off <= SPREAD) { shatter(c); S.clays.splice(i, 1); hits++; }
+    }
+    if (hits) { m.hit += hits; m.goodShots++; m.streak += hits; if (m.streak > m.best) m.best = m.streak; }
+    else if (nearest < 30) { m.missN++; m.missSum += nearest; }
+    shot.kick = 1; shot.until = now + 90;
+    const p = tracerGeo.attributes.position.array;
+    tmpA.set(0.12, -0.3, -0.6).applyQuaternion(camera.quaternion);
+    p[0] = tmpA.x; p[1] = tmpA.y; p[2] = tmpA.z; p[3] = shot.dir.x * 40; p[4] = shot.dir.y * 40; p[5] = shot.dir.z * 40;
+    tracerGeo.attributes.position.needsUpdate = true;
+    sfx('shot', panOf(shot.dir));
+  }
+  function play(now, dt) {
+    const m = S.m;
+    for (let i = S.clays.length - 1; i >= 0; i--) {
+      const c = S.clays[i];
+      c.v.y -= G * dt;
+      c.m.position.addScaledVector(c.v, dt);
+      c.m.rotation.y += 9 * dt;
+      c.age += dt;
+      if (c.m.position.y < -1.5 || c.age > 6) { scene.remove(c.m); S.clays.splice(i, 1); m.streak = 0; sfx('drop', panOf(c.m.position)); }
+    }
+    if (!S.clays.length) {
+      if (!S.plan.length) { if (now >= S.next) return endRound(); }
+      else {
+        if (!S.cued && now >= S.next - 550) { S.cued = true; sfx('cue'); }
+        if (now >= S.next) { S.plan.shift().forEach(launch); S.cued = false; }
+      }
+    } else S.next = now + 1500 + Math.random() * 700; // the next throw comes a moment after the air is clear
+    drawText(hud, [`🎯 ${m.hit}/${m.thrown}     ${CLAYS - m.thrown} to come`]);
+    if (S.mode === 'hand') {
+      note.visible = !blade.ok;
+      if (!blade.ok) drawText(note, ['👉 Hold a finger gun out in front']);
+    }
+  }
+  function moveBits(dt) {
+    for (let i = S.bits.length - 1; i >= 0; i--) {
+      const b = S.bits[i];
+      b.v.y -= 6 * dt;
+      b.g.position.addScaledVector(b.v, dt);
+      b.g.rotation.x += b.spin * dt; b.g.rotation.z += b.spin * 0.7 * dt;
+      if ((b.life -= dt) <= 0) { scene.remove(b.g); S.bits.splice(i, 1); }
+    }
+  }
+  function startRound() {
+    S.clays.forEach((c) => scene.remove(c.m)); S.clays = [];
+    S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
+    S.plan = makePlan(CLAYS); S.cued = false; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
+    panel.visible = false; hud.visible = true;
+    recentre = true;
+    S.phase = 'count'; S.count = performance.now(); S.tick = 99;
+  }
+  function endRound() {
+    const m = S.m, frames = m.handFrames + m.lostFrames;
+    const row = {
+      v: 1, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
+      missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
+      trigger: { thumb: m.thumb, tap: m.tap, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi },
+      hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
+      screen: [innerWidth, innerHeight], cam: S.cam || '', fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
+    };
+    const rows = store.get('skeetVRRounds', []);
+    rows.push(row);
+    store.set('skeetVRRounds', rows.slice(-200));
+    S.endLines = [`Hit ${m.hit} of ${m.thrown} · best run ${m.best}`, `${m.shots} shots · ${m.shots ? Math.round(row.acc * 100) : 0}% hit`].concat(
+      S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time`] : [], ['Look here, or fire, to play again']);
+    S.phase = 'end'; S.dwell = 0; S.endAt = performance.now();
+    hud.visible = false; note.visible = false;
+    panel.visible = true;
+    sfx('end');
+    drawRounds();
+  }
+
+  // ---------- sound ----------
+  // Every sound is made here from tones and filtered noise, so there are no sound files to download. Sounds are placed
+  // left or right to match where things are.
+  let ac = null;
+  const snd = { on: true, out: null, noise: null, meter: null, n: {} };
+  function sndInit() {
+    if (snd.out || !ac) return;
+    const comp = ac.createDynamicsCompressor();
+    snd.out = ac.createGain();
+    snd.out.gain.value = 0.7;
+    snd.meter = ac.createAnalyser();
+    snd.out.connect(comp); comp.connect(snd.meter); snd.meter.connect(ac.destination);
+    snd.noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+    const d = snd.noise.getChannelData(0);
+    for (let k = 0; k < d.length; k++) d[k] = Math.random() * 2 - 1;
+  }
+  // where a sound sits: -1 hard left to 1 hard right, from the direction of a point in the room
+  const panTmp = new THREE.Vector3(), panQ = new THREE.Quaternion();
+  const panOf = (pos) => Math.max(-1, Math.min(1, panTmp.copy(pos).applyQuaternion(panQ.copy(camera.quaternion).invert()).normalize().x * 1.6));
+  function chain(pan, gain) {
+    const g = ac.createGain();
+    g.gain.value = gain;
+    if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = pan || 0; g.connect(p); p.connect(snd.out); } else g.connect(snd.out);
+    return g;
+  }
+  function tone(type, f0, f1, dur, gain, pan, delay) {
+    const t = ac.currentTime + (delay || 0), o = ac.createOscillator(), g = chain(pan, 1);
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); o.start(t); o.stop(t + dur + 0.02);
+  }
+  function hiss(kind, f0, f1, q, dur, gain, pan, delay) {
+    const t = ac.currentTime + (delay || 0), src = ac.createBufferSource(), flt = ac.createBiquadFilter(), g = chain(pan, 1);
+    src.buffer = snd.noise; src.loop = true;
+    flt.type = kind; flt.Q.value = q;
+    flt.frequency.setValueAtTime(f0, t); flt.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(flt); flt.connect(g); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.02);
+  }
+  function sfx(name, a) {
+    if (!ac || !snd.on) return;
+    try {
+      sndInit();
+      snd.n[name] = (snd.n[name] || 0) + 1;
+      if (name === 'shot') { hiss('lowpass', 5200, 380, 0.6, 0.22, 0.9, a); tone('sine', 150, 42, 0.2, 0.7, a); }
+      else if (name === 'break') { hiss('highpass', 2600, 5200, 0.8, 0.16, 0.5, a, 0.02); tone('triangle', 1250, 520, 0.12, 0.2, a, 0.02); tone('triangle', 1900, 900, 0.09, 0.12, a, 0.05); }
+      else if (name === 'launch') { hiss('bandpass', 700, 1500, 3, 0.16, 0.28, a); tone('sine', 220, 330, 0.12, 0.08, a); }
+      else if (name === 'cue') tone('square', 880, 880, 0.12, 0.07, 0);
+      else if (name === 'dry') tone('square', 1400, 1400, 0.03, 0.05, 0);
+      else if (name === 'drop') tone('sine', 150, 60, 0.18, 0.1, a);
+      else if (name === 'count') tone('square', 440, 440, 0.09, 0.08, 0);
+      else if (name === 'go') { tone('square', 660, 660, 0.09, 0.09, 0); tone('square', 990, 990, 0.2, 0.09, 0, 0.1); }
+      else if (name === 'end') [523.25, 659.25, 783.99, 1046.5].forEach((f, k) => tone('triangle', f, f, k === 3 ? 0.5 : 0.16, 0.2, 0, k * 0.13));
+    } catch (e) {}
+  }
+
+  // ---------- frame loop ----------
+  let last = 0, wake = null;
+  const fwd2 = new THREE.Vector3();
+  function frame(now) {
+    if (!S.on) return;
+    requestAnimationFrame(frame);
+    const gap = now - last, real = Math.min(0.3, gap / 1000 || 0.016), dt = Math.min(0.05, real);
+    last = now;
+    pace(now, gap);
+    applyHead();
+    if (S.mode === 'hand') trackHand(now);
+    updateBlade(now, dt);
+    const fireWord = S.mode === 'hand' ? 'Drop your thumb, or press the button' : TOUCH ? 'Press the viewer\'s button' : 'Click';
+    if (!S.ready) {
+      // waiting for the phone to be turned sideways: the countdown and the throws stand still
+      if (S.phase === 'count') S.count = now;
+      else if (S.phase === 'play') S.next += gap;
+    } else if (S.phase === 'wait') {
+      // nothing starts until a shot is fired, so there is time to put the phone in the viewer
+      note.visible = true;
+      drawText(note, ['Ready?', fireWord + ' to start']);
+    } else if (S.phase === 'count') {
+      const left = 3 - (now - S.count) / 1000;
+      note.visible = true;
+      drawText(note, [left > 0 ? String(Math.ceil(left)) : 'Pull!']);
+      const tick = Math.ceil(left);
+      if (tick !== S.tick) { S.tick = tick; sfx(tick > 0 ? 'count' : 'go'); }
+      drawText(hud, ['🎯 0/0']);
+      if (left <= -0.4) { note.visible = false; S.phase = 'play'; S.next = now + 900; }
+    } else if (S.phase === 'play') play(now, dt);
+    else if (S.phase === 'end') {
+      fwd2.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      const off = fwd2.angleTo(tmpA.copy(panel.position).normalize()) / D;
+      S.dwell = off < 14 ? S.dwell + real : 0;
+      drawText(panel, S.endLines, { ring: Math.min(1, S.dwell / 2) });
+      note.visible = off > 32; // the board is out of sight
+      if (note.visible) drawText(note, ['Round over', 'Look straight ahead']);
+      if (S.dwell >= 2) { note.visible = false; startRound(); }
+    }
+    moveBits(dt);
+    // crosshair and the shot's streak
+    cross.visible = blade.ok;
+    if (blade.ok) {
+      shot.kick = Math.max(0, shot.kick - real * 6);
+      cross.position.copy(blade.dir).multiplyScalar(BR);
+      cross.quaternion.copy(camera.quaternion);
+      cross.scale.setScalar(1 + shot.kick * 0.9);
+      crossMat.color.setHex(S.mode === 'hand' && !trig.cocked ? 0x9fb0c6 : 0xffd88a);
+    }
+    tracer.visible = now < shot.until;
+
+    const w = S.w, h = S.h; // the renderer takes these in screen pixels and applies the pixel ratio itself
+    renderer.setScissorTest(false);
+    renderer.clear();
+    if (STEREO) {
+      stereo.update(camera);
+      renderer.setScissorTest(true);
+      renderer.setScissor(0, 0, w / 2, h); renderer.setViewport(0, 0, w / 2, h);
+      renderer.render(scene, stereo.cameraL);
+      renderer.setScissor(w / 2, 0, w / 2, h); renderer.setViewport(w / 2, 0, w / 2, h);
+      renderer.render(scene, stereo.cameraR);
+    } else {
+      renderer.setViewport(0, 0, w, h);
+      renderer.render(scene, camera);
+    }
+  }
+
+  // ---------- start / stop ----------
+  async function start() {
+    const want = document.querySelector('input[name=aim]:checked').value;
+    S.showRoom = $('room').checked;
+    snd.on = $('sound').checked;
+    say('Starting…');
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (e) {}
+    // motion: iPhone asks once, and only from a button press
+    try {
+      if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') say('Motion was not allowed, so drag the picture to look around.');
+      }
+    } catch (e) {}
+    window.addEventListener('deviceorientation', onOrient);
+    S.mode = want;
+    const needCam = want === 'hand' || S.showRoom;
+    if (needCam && !S.stream) {
+      try { S.stream = await startCamera(); } catch (e) {
+        S.stream = null; S.showRoom = false;
+        if (want === 'hand') { S.mode = 'head'; say('The camera could not be used, so the crosshair follows your gaze.'); }
+      }
+    }
+    if (S.mode === 'hand' && !landmarker) {
+      say('Loading the hand tracker…');
+      try { await loadHands(); } catch (e) { S.mode = 'head'; say('The hand tracker could not be loaded, so the crosshair follows your gaze.'); }
+    }
+    vplane.visible = !!(S.showRoom && S.stream);
+    room.visible = !vplane.visible;
+    $('setup').hidden = true; $('vr').hidden = false; $('mid').hidden = !STEREO;
+    S.on = true;
+    resize();
+    try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    S.phase = 'wait';
+    hud.visible = false; panel.visible = false; recentre = true;
+    last = performance.now();
+    requestAnimationFrame(frame);
+  }
+  function stop() {
+    S.on = false; S.phase = 'idle';
+    $('vr').hidden = true; $('turn').hidden = true; $('setup').hidden = false;
+    if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; vid.srcObject = null; }
+    try { if (wake) wake.release(); } catch (e) {}
+    wake = null;
+    if ($('status').textContent === 'Starting…' || $('status').textContent === 'Loading the hand tracker…') say('');
+    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam);
+    drawRounds();
+  }
+  $('go').onclick = start;
+  $('leave').onclick = stop;
+  $('turnExit').onclick = stop;
+  addEventListener('resize', resize);
+  vid.addEventListener('loadedmetadata', resize);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
+
+  // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
+  window.__skeet = { S, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; handRaw.vu = handRaw.vv = 0; handRaw.t = performance.now(); } }, setMode(m) { S.mode = m; } };
+})();
+</script>
+</body>
+</html>
