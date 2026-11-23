@@ -19,7 +19,8 @@ turn the phone sideways and put it in the viewer. Fire once to begin.
 - **Finger gun.** Index finger pointing, thumb up. The crosshair follows your
   fingertip. Drop your thumb onto your hand to fire; lift it again for the next
   shot. The crosshair is gold when a shot is ready and grey while the thumb is down.
-- **My gaze.** The crosshair sits where you look; the viewer's button fires. Used
+- **My gaze.** The crosshair sits where you look. Hold it on a clay for about a third
+  of a second and it fires by itself; the viewer's button fires too. Used
   automatically if the camera or the hand tracker isn't available.
 - The viewer's button (a tap on the screen) always fires too.
 - A round is 20 clays: singles from each side in turn, and every third throw a
