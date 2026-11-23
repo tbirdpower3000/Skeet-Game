@@ -498,7 +498,7 @@
   const FORGIVE = 150;  // and it may count from anywhere the crosshair was in the 150 ms before that: the training page's
                         // "forgiving press", for a crosshair that had just slipped off the target
   const clayGeo = new THREE.CylinderGeometry(1, 0.8, 0.28, 24), clayMat = new THREE.MeshLambertMaterial({ color: 0xff7a1f, emissive: 0x7a2c00 }), bitGeo = new THREE.BoxGeometry(1, 0.5, 1);
-  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3();
+  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3(), tmpC = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
 
   // the order of throws: singles from each house in turn, with a double (one from each house at once) every third throw
   function makePlan(n) {
@@ -628,15 +628,26 @@
     if (!S.clays.length) {
       if (!S.plan.length) { if (now >= S.next) return endRound(); }
       else {
-        if (!S.cued && now >= S.next - 550) { S.cued = true; sfx('cue'); }
+        if (!S.cued && now >= S.next - 550) {
+          S.cued = true; sfx('cue');
+          // if you have turned well away from the field since, it is brought back in front of you before the throw
+          fwd2.set(0, 0, -1).applyQuaternion(camera.quaternion);
+          if (Math.abs(Math.atan2(fwd2.x, -fwd2.z)) / D > 35) recentre = true;
+        }
         if (now >= S.next) { S.plan.shift().forEach(launch); S.cued = false; }
       }
     } else S.next = now + 1500 + Math.random() * 700; // the next throw comes a moment after the air is clear
     drawText(hud, [`🎯 ${m.hit}/${m.thrown}     ${CLAYS - m.thrown} to come`]);
-    if (S.mode === 'hand') {
-      note.visible = !blade.ok;
-      if (!blade.ok) drawText(note, ['👉 Hold a finger gun out in front']);
+    // an arrow when a clay is in the air but off to the side of where you are looking
+    let side = 0;
+    if (S.clays.length) {
+      tmpA.copy(S.clays[0].m.position).applyQuaternion(tmpQ.copy(camera.quaternion).invert());
+      const az = Math.atan2(tmpA.x, -tmpA.z) / D;
+      if (Math.abs(az) > 28) side = az > 0 ? 1 : -1;
     }
+    note.visible = side !== 0 || (S.mode === 'hand' && !blade.ok);
+    if (side) drawText(note, [side > 0 ? 'Clay  ▶▶' : '◀◀  Clay']);
+    else if (note.visible) drawText(note, ['👉 Hold a finger gun out in front']);
   }
   function moveBits(dt) {
     for (let i = S.bits.length - 1; i >= 0; i--) {
@@ -763,7 +774,9 @@
       const tick = Math.ceil(left);
       if (tick !== S.tick) { S.tick = tick; sfx(tick > 0 ? 'count' : 'go'); }
       drawText(hud, ['🎯 0/0']);
-      if (left <= -0.4) { note.visible = false; S.phase = 'play'; S.next = now + 900; }
+      // the field is set straight ahead of where you are looking now, as the throws begin: the button may have been
+      // pressed before the phone went into the viewer, facing anywhere
+      if (left <= -0.4) { note.visible = false; S.phase = 'play'; S.next = now + 900; recentre = true; }
     } else if (S.phase === 'play') play(now, dt);
     else if (S.phase === 'end') {
       fwd2.set(0, 0, -1).applyQuaternion(camera.quaternion);
