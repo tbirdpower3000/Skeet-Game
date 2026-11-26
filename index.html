@@ -446,7 +446,12 @@
   // "Dual Wide") that can zoom out to the ultra-wide lens; failing that, the ordinary one. Whichever opens is then zoomed
   // out as far as it goes, and a candidate is kept only if it really is a rear camera.
   const camSize = { width: { ideal: 1280 }, height: { ideal: 720 } };
-  const openCam = (how) => navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({}, how, camSize) });
+  // The camera is asked for 60 pictures a second where it can give them: the hand is then seen twice as often, so the
+  // blade or crosshair is fresher and a fast hand moves less between sightings. It is a wish, not a demand, so a camera
+  // that only does 30 still opens; and if a phone refuses the request outright, it is asked again without it.
+  const openCam = (how) =>
+    navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({}, how, camSize, { frameRate: { ideal: 60 } }) })
+      .catch(() => navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({}, how, camSize) }));
   const stopCam = (st) => st.getTracks().forEach((t) => t.stop());
   async function zoomOut(track) {
     try {
@@ -491,6 +496,7 @@
     }
     if (!(await pictures(3000))) { stopCam(st); throw new Error('The camera gave no picture'); }
     S.cam = track.label || '';
+    S.camFps = (track.getSettings && Math.round(track.getSettings().frameRate || 0)) || 0; // what the camera settled on
     return st;
   }
   async function loadHands() {
@@ -765,7 +771,7 @@
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
       trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
-      screen: [innerWidth, innerHeight], cam: S.cam || '', fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
+      screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
@@ -954,7 +960,7 @@
     try { if (wake) wake.release(); } catch (e) {}
     wake = null;
     if ($('status').textContent === 'Starting…' || $('status').textContent === 'Loading the hand tracker…') say('');
-    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam);
+    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam + (S.camFps ? ', ' + S.camFps + ' pictures a second' : ''));
     drawRounds();
   }
   $('go').onclick = start;
