@@ -45,7 +45,7 @@
   <div class="card">
     <h2 style="margin-top:0">Aim</h2>
     <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
-    <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" checked /><span><b>Easy on the arm</b><br /><span class="muted">Your head does the big aiming and your hand only the fine: the crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength. Your arm can stay low and bent. Off: the crosshair sits on your fingertip.</span></span></label>
+    <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" /><span><b>Easy on the arm</b><br /><span class="muted">Off (the usual way): the crosshair sits on your fingertip and goes where your finger goes. On: your head does the big aiming and your hand only the fine. The crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength, so your arm can stay low and bent. A small dot still shows where your fingertip is.</span></span></label>
     <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Hold it on a clay for a moment and it fires by itself; the viewer's button fires too. No camera needed.</span></span></label>
     <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the targets instead of the virtual range.</span></span></label>
     <label class="opt"><input type="checkbox" id="lensOn" checked /><span><b>Fit the picture to the lenses</b><br /><span class="muted">Shapes and places each eye's picture for a Google Cardboard (2015) viewer: centred behind each lens, at true size, with the lenses' stretching towards the edges taken out. Turn it off for another kind of viewer.</span></span></label>
@@ -95,7 +95,7 @@
   };
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.12';
+  const VERSION = 'v0.13';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -110,7 +110,7 @@
         `<tr><td>${new Date(r.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${r.mode === 'hand' ? 'Finger gun' : 'Gaze'}</td><td>${r.hit}/${r.thrown}</td><td>${r.shots}</td><td>${r.shots ? Math.round(r.acc * 100) + '%' : '–'}</td><td>${r.mode === 'hand' ? r.trigger.thumb : '–'}</td><td>${r.mode === 'hand' && r.hand ? Math.round(r.hand.lostPct * 100) + '%' : '–'}</td></tr>`).join('');
   }
   drawRounds();
-  $('fine').checked = store.get('skeetVRFine', true);
+  $('fine').checked = store.get('skeetVRFine2', false);
   // a QR code for this page's own address (without any ?options), so it can be opened on the phone by scanning the screen
   (function () {
     const url = location.origin + location.pathname;
@@ -333,9 +333,14 @@
   const BR = 2.4;
   const cross = new THREE.Group();
   const crossMat = new THREE.MeshBasicMaterial({ color: 0xffd88a, depthTest: false, transparent: true, opacity: 0.95 });
-  cross.add(new THREE.Mesh(new THREE.RingGeometry(0.045, 0.058, 32), crossMat), new THREE.Mesh(new THREE.CircleGeometry(0.009, 12), crossMat));
+  cross.add(new THREE.Mesh(new THREE.RingGeometry(0.05, 0.072, 32), crossMat), new THREE.Mesh(new THREE.CircleGeometry(0.013, 12), crossMat));
   cross.children.forEach((c) => (c.renderOrder = 21));
   scene.add(cross);
+  // a small blue dot where the camera sees your fingertip, whenever it sees it: proof the hand is being followed, and
+  // the only sign of the finger itself when Easy on the arm keeps the crosshair near where you look
+  const fdot = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), new THREE.MeshBasicMaterial({ color: 0x7fd4ff, depthTest: false, transparent: true, opacity: 0.9 }));
+  fdot.renderOrder = 20; fdot.visible = false;
+  scene.add(fdot);
   // a shot's streak of light, from just below the view to where it was aimed
   const tracerGeo = new THREE.BufferGeometry();
   tracerGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
@@ -463,6 +468,7 @@
   function sight(now, u, v, tCap) {
     videoDir(u, v, sv).applyQuaternion(headAt(tCap, qThen));
     const yaw = Math.atan2(sv.x, -sv.z), pitch = Math.asin(Math.max(-1, Math.min(1, sv.y)));
+    if (!isFinite(yaw) || !isFinite(pitch)) { S.badSight = (S.badSight || 0) + 1; return; } // a sighting that makes no sense is dropped, not passed on
     // median of three, then One Euro, with more smoothing near the edge of the camera picture, where the tracker's
     // points jump (down to about a third right at the border)
     const edge = Math.min(u, 1 - u, v, 1 - v);
@@ -787,7 +793,8 @@
           tmpA.set(Math.sin(cy) * cc, Math.sin(cp), -Math.cos(cy) * cc);
           if (S.m) { S.m.offSum += Math.hypot(hy - rest.x, hp - rest.y) / D; S.m.offN++; }
         }
-        blade.dir.copy(tmpA); // already smoothed where the fingertip was found
+        if (isFinite(tmpA.x + tmpA.y + tmpA.z)) blade.dir.copy(tmpA); // already smoothed where the fingertip was found
+        else { aimF.reset(); handRaw.ok = false; rest.has = false; S.badAim = (S.badAim || 0) + 1; }
         blade.ok = true; blade.lastSeen = now;
       } else if (now - blade.lastSeen > 350) { blade.ok = false; rest.has = false; }
     } else {
@@ -901,7 +908,7 @@
       camDelay: Math.round(cam.delay), camTold: cam.told,
       trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, rewind: m.rewN ? Math.round(m.rewSum / m.rewN) : null, kick: m.kickN ? m.kickSum / m.kickN : null, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
-      screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, handOn: handSys.on, handErr: handSys.err, handLooks: { found: roi.found, moves: roi.moves }, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
+      screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, handOn: handSys.on, handErr: handSys.err, handLooks: { found: roi.found, moves: roi.moves, badSight: S.badSight || 0, badAim: S.badAim || 0 }, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
@@ -996,7 +1003,7 @@
       // nothing starts until a shot is fired, so there is time to put the phone in the viewer
       note.visible = true;
       // the third line says what the game is waiting for or why it is not using the hand, so a problem can be seen from inside the viewer
-      drawText(note, ['Ready?', fireWord + ' to start'].concat(S.why ? [S.why] : S.mode === 'hand' && !blade.ok ? ['No hand in view yet'] : []));
+      drawText(note, ['Ready?', fireWord + ' to start'].concat(S.why ? [S.why] : S.mode === 'hand' ? [blade.ok && handRaw.ok ? 'Hand found \u2713 (' + roi.found + ')' : 'No hand in view yet (' + roi.found + ')'] : []));
     } else if (S.phase === 'count') {
       const left = 3 - (now - S.count) / 1000;
       note.visible = true;
@@ -1028,6 +1035,8 @@
       crossMat.color.setHex(S.mode === 'hand' && !trig.cocked ? 0x9fb0c6 : 0xffd88a);
       crossMat.opacity = S.mode === 'hand' && handRaw.edge < 0.08 ? 0.4 : 0.95; // faint where the camera is about to lose the hand
     }
+    fdot.visible = S.mode === 'hand' && handRaw.ok && rest.on;
+    if (fdot.visible) { handNow(now, tmpC); fdot.position.copy(tmpC).multiplyScalar(BR); fdot.quaternion.copy(camera.quaternion); }
     tracer.visible = now < shot.until;
 
     const w = S.w, h = S.h; // the renderer takes these in screen pixels and applies the pixel ratio itself
@@ -1063,7 +1072,7 @@
     } catch (e) {}
     window.addEventListener('deviceorientation', onOrient);
     S.mode = want; S.why = '';
-    rest.on = $('fine').checked; rest.has = false; store.set('skeetVRFine', rest.on);
+    rest.on = $('fine').checked; rest.has = false; store.set('skeetVRFine2', rest.on);
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
       try { S.stream = await startCamera(); } catch (e) {

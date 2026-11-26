@@ -55,7 +55,7 @@ pinches and cursors:
   and the camera is on your head. Each sighting of the hand is turned by where the head
   was pointing when the picture was taken (the browser's own time for the picture where
   it gives one, else 70 ms ago), so turning your head no longer drags the crosshair.
-- **Easy on the arm** (on by default). Your head does the big aiming and your hand the
+- **Easy on the arm** (an option, off unless chosen). Your head does the big aiming and your hand the
   fine: the crosshair is where you look, moved by half of how far your hand is from
   where it rests. The resting place follows the hand slowly between throws and holds
   still during one, so the arm can stay low and bent. Off: the crosshair sits on your
@@ -117,6 +117,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.13** (26 Nov 2026): Easy on the arm is now off unless chosen, so the crosshair follows the fingertip as before; a bolder crosshair; a blue dot on the fingertip when Easy on the arm is on; the Ready prompt says when the hand is found, with a count of sightings
 - **v0.12** (26 Nov 2026): Version numbers: shown beside the title, saved with each round
 - **v0.11** (26 Nov 2026): Hand finder: look at a part of the picture that follows the hand
 - **v0.10** (26 Nov 2026): Hand finder: fall back to the processor, and say what went wrong
