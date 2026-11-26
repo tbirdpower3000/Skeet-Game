@@ -97,6 +97,11 @@ gh run list --repo tbirdpower3000/Skeet-Game --limit 1
   software rendering. They are harmless.
 - **Gaze shots fire by resting on a clay** for a third of a second, so the driver only has to look at it. Thumb shots need `__fake.thumb` to go from about 0.6 to 0.2 and back.
 
+- **The shared engine comes from the VR-Portal site,** which the sandbox cannot reach.
+  The driver serves `../vr-portal/v1/vr-engine.js` in its place when that checkout exists
+  beside this repo (clone `tbirdpower3000/VR-Portal` to `../vr-portal`). Without it the
+  setup page says "The VR engine could not be loaded" and the driver times out.
+
 ## Troubleshooting
 
 - **Driver times out waiting for the hook:** the game script did not run. Check the

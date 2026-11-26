@@ -117,6 +117,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.14** (26 Nov 2026): Runs on the shared VR engine (the VR-Portal repo, engine 1.0.0): the drawing surface, lens fitting, text signs, filters, camera, hand finder, sound and saved settings are loaded from there and no longer kept in this page. Nothing should look or play differently
 - **v0.13** (26 Nov 2026): Easy on the arm is now off unless chosen, so the crosshair follows the fingertip as before; a bolder crosshair; a blue dot on the fingertip when Easy on the arm is on; the Ready prompt says when the hand is found, with a count of sightings
 - **v0.12** (26 Nov 2026): Version numbers: shown beside the title, saved with each round
 - **v0.11** (26 Nov 2026): Hand finder: look at a part of the picture that follows the hand
@@ -132,6 +133,14 @@ The version is shown beside the title on the setup page and saved with every rou
 - **v0.1** (23 Nov 2026): Skeet VR: clay shooting with a finger gun, first version
 
 ## Design notes
+
+**The shared engine.** About half of this page used to be the same code as Fruit Slicer
+VR's, copied by hand. That half now lives once, in the
+[VR-Portal](https://github.com/tbirdpower3000/VR-Portal) repo, and this page loads it
+from `https://tbirdpower3000.github.io/VR-Portal/v1/vr-engine.js`. The page keeps what is
+Skeet's own: head tracking, the hand-in-the-room aiming, the thumb trigger, the clays
+and the scoring. If the engine cannot be loaded, the setup page says so and Start is
+switched off.
 
 **Finding a small hand through the widest camera.** The game always opens the widest
 rear camera, and through it a hand at arm's length is only about a tenth of the
