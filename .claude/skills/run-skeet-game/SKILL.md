@@ -29,6 +29,10 @@ screenshots to a folder of your choice, and a value read out of the page at the 
 node .claude/skills/run-skeet-game/driver.cjs --mode hand --lens off --out /tmp/vr-run-hand --eval 'K.roi.found'
 ```
 
+- **Practice step:** add `--practice` with `--mode hand` to go through the three
+  practice discs with the stand-in hand first (saves `02a-practice.png`, and the summary
+  gains a `practice` entry with the thumb levels it measured). Without it the driver
+  unticks **Practice first**.
 - **Options:** `--mode gaze|hand` (default gaze), `--lens on|off` (the Cardboard lens
   fitting, default on), `--out DIR` (default `/tmp/vr-run`), `--size 852x393`,
   `--eval 'JS'` (an expression evaluated in the page after the round; `K` is the
@@ -95,7 +99,7 @@ gh run list --repo tbirdpower3000/Skeet-Game --limit 1
   by every game on the site; the driver sets it before the page loads.
 - **"GPU stall due to ReadPixels" console warnings** come from taking screenshots with
   software rendering. They are harmless.
-- **Gaze shots fire by resting on a clay** for a third of a second, so the driver only has to look at it. Thumb shots need `__fake.thumb` to go from about 0.6 to 0.2 and back.
+- **Gaze shots fire by resting on a clay** for a third of a second, so the driver only has to look at it. Thumb shots need `__fake.thumb` to go from about 0.6 to 0.2 and back: the stand-in's thumb makes an angle of `thumb × 90` degrees with its index finger.
 
 - **The shared engine comes from the VR-Portal site,** which the sandbox cannot reach.
   The driver serves `../vr-portal/v1/vr-engine.js` in its place when that checkout exists
