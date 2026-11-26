@@ -39,7 +39,7 @@
 </head>
 <body>
 <main id="setup">
-  <h1>🎯 Skeet VR</h1>
+  <h1>🎯 Skeet VR <span id="ver" class="muted" style="font-weight:400;font-size:0.9rem"></span></h1>
   <p class="muted">For a phone in a Google Cardboard viewer. Clay targets fly across in front of you; shoot them with a finger gun before they land.</p>
 
   <div class="card">
@@ -93,6 +93,10 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
+  // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
+  // with each round, so it is always clear which version is on screen and which one a result came from.
+  const VERSION = 'v0.12';
+  $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
   // ---------- setup screen: past rounds ----------
@@ -891,7 +895,7 @@
   function endRound() {
     const m = S.m, frames = m.handFrames + m.lostFrames;
     const row = {
-      v: 1, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
+      v: 1, ver: VERSION, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
       fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
       camDelay: Math.round(cam.delay), camTold: cam.told,
@@ -1101,7 +1105,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>

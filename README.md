@@ -112,6 +112,24 @@ k2 = 0.55348791.
 pixel. Both settings are kept in the browser (`vrLens`) and shared by the games on
 this site. Checked in a desktop browser; not yet looked at through a viewer.
 
+## Versions
+
+The version is shown beside the title on the setup page and saved with every round
+(`ver`). It goes up by one with every change to the game. Newest first.
+
+- **v0.12** (26 Nov 2026): Version numbers: shown beside the title, saved with each round
+- **v0.11** (26 Nov 2026): Hand finder: look at a part of the picture that follows the hand
+- **v0.10** (26 Nov 2026): Hand finder: fall back to the processor, and say what went wrong
+- **v0.9** (26 Nov 2026): Aim: rewound hit test, hand kept in the room, head-plus-hand aiming, per-shot rewind
+- **v0.8** (26 Nov 2026): Ask the camera for 60 pictures a second
+- **v0.7** (26 Nov 2026): Fit the picture to the lenses of a Google Cardboard (2015)
+- **v0.6** (23 Nov 2026): Keep the field in front of the player
+- **v0.5** (23 Nov 2026): Gaze shots that fire by themselves, and a safer camera switch
+- **v0.4** (23 Nov 2026): Say inside the viewer why the hand is not being used
+- **v0.3** (23 Nov 2026): Bigger clays, set further back, easier to hit; houses hidden
+- **v0.2** (23 Nov 2026): Trigger and aim: carry over the training page's lessons
+- **v0.1** (23 Nov 2026): Skeet VR: clay shooting with a finger gun, first version
+
 ## Design notes
 
 **Finding a small hand through the widest camera.** The game always opens the widest
