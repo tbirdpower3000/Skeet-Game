@@ -46,6 +46,7 @@
     <h2 style="margin-top:0">Aim</h2>
     <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
     <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" /><span><b>Easy on the arm</b><br /><span class="muted">Off (the usual way): the crosshair sits on your fingertip and goes where your finger goes. On: your head does the big aiming and your hand only the fine. The crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength, so your arm can stay low and bent. A small dot still shows where your fingertip is.</span></span></label>
+    <label class="opt" style="padding-left:28px"><input type="checkbox" id="practice" /><span><b>Practice first</b><br /><span class="muted">Before the round, a disc hangs still in front of you. You point at it, stick your thumb up, and drop your thumb to break it, three times. This also teaches the game how far your own thumb moves. Ticked until you have done it once.</span></span></label>
     <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Hold it on a clay for a moment and it fires by itself; the viewer's button fires too. No camera needed.</span></span></label>
     <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the targets instead of the virtual range.</span></span></label>
     <label class="opt"><input type="checkbox" id="lensOn" checked /><span><b>Fit the picture to the lenses</b><br /><span class="muted">Shapes and places each eye's picture for a Google Cardboard (2015) viewer: centred behind each lens, at true size, with the lenses' stretching towards the edges taken out. Turn it off for another kind of viewer.</span></span></label>
@@ -95,7 +96,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.14';
+  const VERSION = 'v0.15';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -111,6 +112,7 @@
   }
   drawRounds();
   $('fine').checked = store.get('skeetVRFine2', false);
+  $('practice').checked = !store.get('skeetVRPracticed2', false);
   VRE.qr(); // the QR code for this page's own address
   $('copy').onclick = async () => {
     const txt = JSON.stringify({ rounds: store.get('skeetVRRounds', []) }, null, 1);
@@ -119,7 +121,7 @@
   let clearArmed = 0;
   $('clear').onclick = () => {
     if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
-    store.set('skeetVRRounds', []); store.set('skeetVRTrigger', {}); store.set('skeetVRPlainCam', false);
+    store.set('skeetVRRounds', []); store.set('skeetVRTrigger2', {}); store.set('skeetVRPracticed2', false); store.set('skeetVRPlainCam', false);
     $('clear').textContent = 'Clear'; clearArmed = 0; drawRounds();
   };
 
@@ -340,19 +342,27 @@
   //   so a reading hovering near one level can't fire twice.
   // - A shot counts only if the thumb had been up for 150 ms first (a "deliberate" press), which drops flickers.
   const WIDTH_TO_LENGTH = 1.35, COCK_MS = 150;
-  const trig = Object.assign({ r: 0, hi: 0.6, lo: 0.2, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger', {}), { cocked: false, since: 0 });
+  const trig = Object.assign({ r: 0, hi: 0.8, lo: 0.25, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger2', {}), { cocked: false, since: 0 });
   const trigF = new OneEuro(3, 1);
   const trigLog = []; // the last half second of readings, to find when a drop began
+  // The reading is an ANGLE. Two lines are drawn on the hand: the thumb, from its base to its tip, and the index
+  // finger, from its knuckle to its tip. With the thumb stuck up, the two are near perpendicular (about 90 degrees);
+  // with the thumb laid down along the finger, they are near parallel (towards 0). The reading is that angle as a share
+  // of a right angle, so 1 is perpendicular and 0 is parallel. The gun fires on the way from perpendicular to parallel.
+  // It is measured on the tracker's 3D hand where there is one, so tilting the hand changes it little. As on the
+  // training page's pinch, a frame is ignored when the thumb's length makes no sense for the hand (the tracker has
+  // mixed up its points), and the last good reading is kept.
   function thumbReading(res) {
     const w = res.worldLandmarks && res.worldLandmarks[0], l = w || res.landmarks[0];
     const ax = w ? 1 : (vid.videoWidth || 16) / (vid.videoHeight || 9);
     const P = (i) => [l[i].x * ax, l[i].y, w ? l[i].z : 0];
     const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.sqrt(dot(a, a));
-    const t = P(4), a = P(5), ab = sub(P(6), a), at = sub(t, a);
-    const k = Math.max(0, Math.min(1, dot(at, ab) / (dot(ab, ab) || 1)));
+    const thumb = sub(P(4), P(2)), finger = sub(P(8), P(5)), lt = len(thumb), lf = len(finger);
     const l1 = len(sub(P(9), P(0))), l2 = WIDTH_TO_LENGTH * len(sub(P(17), P(5)));
     const size = w ? (l1 + l2) / 2 : Math.max(l1, l2); // in the flat picture a turned hand looks small, so the larger bone is taken
-    return size > 1e-6 ? len(sub(at, [ab[0] * k, ab[1] * k, ab[2] * k])) / size : null;
+    if (!(size > 1e-6) || !(lf > 1e-6) || lt / size < 0.25 || lt / size > 1.3) { trig.rejects = (trig.rejects || 0) + 1; return trig.lastRaw == null ? null : trig.lastRaw; }
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot(thumb, finger) / (lt * lf)))) / D;
+    return (trig.lastRaw = Math.min(1.5, angle / 90));
   }
   function feedTrigger(raw, now) {
     if (raw == null || !isFinite(raw)) return;
@@ -364,10 +374,15 @@
     // drops part of the way still gets a trigger that fits it.
     trig.still = Math.abs(trigF.dx) < 0.4 ? (trig.still || 0) + 1 : 0;
     if (r > trig.hi) trig.hi += (r - trig.hi) * 0.5;
-    else if (trig.still >= 3 && r > 0.8 * trig.hi) trig.hi += (r - trig.hi) * 0.1;
+    // Until the practice has measured this player's thumb: if the highest reading of the last few seconds stays well
+    // below "up", then "up" was set too high for this thumb, and it comes down to meet it.
+    trig.peak = Math.max(r, (trig.peak == null ? r : trig.peak) - 0.05 * Math.min(0.2, (now - (trig.peakT || now)) / 1000));
+    trig.peakT = now;
+    if (!trig.cal && trig.peak < 0.85 * trig.hi) trig.hi += (trig.peak - trig.hi) * 0.03;
+    else if (trig.still >= 3 && r > 0.8 * trig.hi) trig.hi += (r - trig.hi) * (trig.cal ? 0.02 : 0.1);
     if (r < trig.lo) trig.lo += (r - trig.lo) * 0.5;
-    else if (trig.still >= 3 && r <= 0.8 * trig.hi) trig.lo += (r - trig.lo) * 0.3;
-    trig.hi = Math.max(0.3, trig.hi);
+    else if (trig.still >= 3 && r <= 0.8 * trig.hi) trig.lo += (r - trig.lo) * (trig.cal ? 0.03 : 0.3); // measured in practice: then only nudged
+    trig.hi = Math.max(0.45, trig.hi); // thumb-up is never taken to be less than about 40 degrees
     trig.lo = Math.min(0.8 * trig.hi, trig.lo);
     trigLog.push({ t: now, r }); while (trigLog.length && now - trigLog[0].t > 500) trigLog.shift();
     const g = trig.hi - trig.lo;
@@ -524,11 +539,83 @@
     else aimLog.length = 0;
   }
 
+  // ---------- practice ----------
+  // Before a round, one thing at a time, with a disc that hangs still straight ahead:
+  //   1. point at it (the crosshair must rest on it for half a second);
+  //   2. stick your thumb up (held steady for half a second: this is taken as your "thumb up");
+  //   3. drop your thumb onto your finger (where it comes to rest is taken as your "thumb down"): the disc breaks.
+  // Three discs, each somewhere a little different. Like the training page's pinch step (open hand, firm pinch, three
+  // times), it teaches the player the gesture and teaches the game this player's own thumb at the same time. The
+  // viewer's button skips it. Each line of the prompt says what the game is waiting for.
+  const PR = { step: 0, n: 0, hold: 0, up: 0, upN: 0, armed: false, low: 0, lowN: 0, disc: null, next: 0, away: 0, msg: '', t0: 0, drops: 0 };
+  const PR_SPOTS = [[0, 0, -10], [-2.6, 0.6, -10], [2.6, -0.4, -10]]; // straight ahead first, where the lenses are sharpest, and clear of the prompt above
+  function practiceDisc() {
+    const m = new THREE.Mesh(clayGeo, clayMat);
+    m.scale.setScalar(CLAY_R); m.rotation.x = 1.05;
+    m.position.fromArray(PR_SPOTS[PR.n % PR_SPOTS.length]);
+    scene.add(m);
+    PR.disc = { m, v: new THREE.Vector3() };
+  }
+  function startPractice() {
+    Object.assign(PR, { step: 1, n: 0, hold: 0, up: 0, upN: 0, armed: false, low: 0, lowN: 0, next: 0, away: 0, msg: '', t0: performance.now(), drops: 0 });
+    if (PR.disc) scene.remove(PR.disc.m);
+    practiceDisc();
+    S.phase = 'practice'; recentre = true;
+    hud.visible = false; panel.visible = false;
+  }
+  function endPractice(done) {
+    if (PR.disc) { scene.remove(PR.disc.m); PR.disc = null; }
+    if (done) { trig.cal = true; store.set('skeetVRPracticed2', true); store.set('skeetVRTrigger2', { hi: trig.hi, lo: trig.lo, cal: true }); $('practice').checked = false; }
+    S.practice = { done: !!done, discs: PR.n, drops: PR.drops, secs: Math.round((performance.now() - PR.t0) / 1000), up: +trig.hi.toFixed(2), down: +trig.lo.toFixed(2) };
+    startRound();
+  }
+  function practice(now, real) {
+    // the disc stays in front of you: if you have turned well away for a second (the phone has only now gone into the
+    // viewer, say), straight ahead is set again
+    fwd2.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    PR.away = Math.abs(Math.atan2(fwd2.x, -fwd2.z)) / D > 35 ? PR.away + real : 0;
+    if (PR.away > 1) { PR.away = 0; recentre = true; }
+    const d = PR.disc, seen = blade.ok && handRaw.ok, on = !!d && seen && offOne(blade.dir, d.m.position) <= SPREAD + 1.5;
+    if (d) d.m.rotation.y += 2 * real;
+    let line = '', tip = '';
+    if (!d) { // a disc has just been broken: the next one comes in a moment, or the round begins
+      line = PR.n >= 3 ? 'That is it. Here come the clays' : 'Broken! Thumb back up';
+      if (now >= PR.next) { if (PR.n >= 3) return endPractice(true); practiceDisc(); PR.step = 1; PR.hold = 0; PR.armed = false; }
+    } else if (!seen) { line = 'Hold a finger gun out in front'; tip = 'Finger pointing, thumb up'; PR.hold = 0; }
+    else if (PR.step === 1) {
+      line = 'Point your finger at the disc'; tip = on ? 'Hold it there\u2026' : 'Move the ring onto it';
+      PR.hold = on ? PR.hold + real : 0;
+      if (PR.hold >= 0.5) { PR.step = 2; PR.hold = 0; PR.up = 0; PR.upN = 0; sfx('count'); }
+    } else if (PR.step === 2) {
+      // thumb up: a steady reading above 45 degrees, held half a second, becomes this player's "up"
+      const up = trig.r > 0.5 && trig.still >= 2;
+      line = 'Stick your thumb straight up'; tip = up ? 'Good, hold it\u2026' : 'Thumb at a right angle to your finger';
+      if (up) { PR.hold += real; PR.up += trig.r; PR.upN++; } else { PR.hold = 0; PR.up = 0; PR.upN = 0; }
+      if (PR.hold >= 0.5) { trig.hi = PR.up / PR.upN; PR.step = 3; PR.hold = 0; PR.armed = true; PR.low = 0; PR.lowN = 0; sfx('go'); }
+    } else {
+      // the drop: from "up", the reading falls by more than a third and comes to rest; where it rests is "down"
+      line = 'Now drop your thumb onto your finger'; tip = on ? 'to break the disc' : 'Keep the ring on the disc';
+      if (!PR.armed && trig.r > 0.85 * trig.hi) PR.armed = true;
+      const down = PR.armed && trig.r < 0.65 * trig.hi && trig.still >= 2;
+      if (down) { PR.low += trig.r; PR.lowN++; } else { PR.low = 0; PR.lowN = 0; }
+      if (PR.lowN >= 2) {
+        PR.drops++; PR.armed = false;
+        const lo = PR.low / PR.lowN;
+        trig.lo = PR.n === 0 ? lo : trig.lo + (lo - trig.lo) * 0.5;
+        if (on) { shatter(d); PR.disc = null; PR.n++; PR.next = now + 900; sfx('shot', panOf(blade.dir)); }
+        else { PR.step = 1; PR.hold = 0; sfx('dry'); PR.msg = 'That fired, but off the disc. Point first'; PR.msgT = now + 2200; }
+      }
+    }
+    note.visible = true;
+    drawText(note, ['Practice ' + Math.min(3, PR.n + 1) + ' of 3', now < (PR.msgT || 0) ? PR.msg : line].concat(tip ? [tip] : []));
+  }
+
   // a shot, from the thumb trigger or the viewer's button. Before and after a round it starts the round instead.
   const shot = { kick: 0, until: 0, last: 0, dir: new THREE.Vector3() };
   function fire(src, aimT) {
     const now = performance.now();
     if (!S.on || !S.ready) return;
+    if (S.phase === 'practice') { if (src === 'tap') endPractice(false); return; } // the viewer's button skips the practice
     if (S.phase === 'wait' || (S.phase === 'end' && now > S.endAt + 1500)) return startRound();
     if (S.phase !== 'play' || now - shot.last < 250) return;
     shot.last = now;
@@ -621,7 +708,7 @@
     const row = {
       v: 1, ver: VERSION, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
-      fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
+      practice: S.practice, fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
       camDelay: Math.round(cam.delay), camTold: cam.told,
       trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, rewind: m.rewN ? Math.round(m.rewSum / m.rewN) : null, kick: m.kickN ? m.kickSum / m.kickN : null, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
@@ -630,7 +717,7 @@
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
     store.set('skeetVRRounds', rows.slice(-200));
-    if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger', { hi: trig.hi, lo: trig.lo }); // the learned thumb levels, for next time
+    if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger2', { hi: trig.hi, lo: trig.lo, cal: !!trig.cal }); // the learned thumb levels, for next time
     S.endLines = [`Hit ${m.hit} of ${m.thrown} · best run ${m.best}`, `${m.shots} shots · ${m.shots ? Math.round(row.acc * 100) : 0}% hit`].concat(
       S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time`] : [], ['Look here, or fire, to play again']);
     S.phase = 'end'; S.dwell = 0; S.endAt = performance.now();
@@ -681,7 +768,8 @@
       // waiting for the phone to be turned sideways: the countdown and the throws stand still
       if (S.phase === 'count') S.count = now;
       else if (S.phase === 'play') S.next += gap;
-    } else if (S.phase === 'wait') {
+    } else if (S.phase === 'practice') practice(now, real);
+    else if (S.phase === 'wait') {
       // nothing starts until a shot is fired, so there is time to put the phone in the viewer
       note.visible = true;
       // the third line says what the game is waiting for or why it is not using the hand, so a problem can be seen from inside the viewer
@@ -773,8 +861,9 @@
     S.on = true;
     resize();
     try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
-    S.phase = 'wait';
+    S.phase = 'wait'; S.practice = null;
     hud.visible = false; panel.visible = false; recentre = true;
+    if (S.mode === 'hand' && $('practice').checked) startPractice();
     last = performance.now();
     requestAnimationFrame(frame);
   }
@@ -796,7 +885,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>
