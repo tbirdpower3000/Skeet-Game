@@ -96,7 +96,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.15';
+  const VERSION = 'v0.16';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -112,7 +112,7 @@
   }
   drawRounds();
   $('fine').checked = store.get('skeetVRFine2', false);
-  $('practice').checked = !store.get('skeetVRPracticed2', false);
+  $('practice').checked = !store.get('skeetVRPracticed3', false);
   VRE.qr(); // the QR code for this page's own address
   $('copy').onclick = async () => {
     const txt = JSON.stringify({ rounds: store.get('skeetVRRounds', []) }, null, 1);
@@ -121,7 +121,7 @@
   let clearArmed = 0;
   $('clear').onclick = () => {
     if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
-    store.set('skeetVRRounds', []); store.set('skeetVRTrigger2', {}); store.set('skeetVRPracticed2', false); store.set('skeetVRPlainCam', false);
+    store.set('skeetVRRounds', []); store.set('skeetVRTrigger3', {}); store.set('skeetVRPracticed3', false); store.set('skeetVRPlainCam', false);
     $('clear').textContent = 'Clear'; clearArmed = 0; drawRounds();
   };
 
@@ -185,11 +185,25 @@
   cross.add(new THREE.Mesh(new THREE.RingGeometry(0.05, 0.072, 32), crossMat), new THREE.Mesh(new THREE.CircleGeometry(0.013, 12), crossMat));
   cross.children.forEach((c) => (c.renderOrder = 21));
   scene.add(cross);
-  // a small blue dot where the camera sees your fingertip, whenever it sees it: proof the hand is being followed, and
-  // the only sign of the finger itself when Easy on the arm keeps the crosshair near where you look
-  const fdot = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), new THREE.MeshBasicMaterial({ color: 0x7fd4ff, depthTest: false, transparent: true, opacity: 0.9 }));
-  fdot.renderOrder = 20; fdot.visible = false;
-  scene.add(fdot);
+  // The hand as the game sees it, drawn over your own: a line along the index finger with a dot on its tip, a dot on
+  // the thumb's tip, and a line across the gap between the thumb's tip and the finger, which is the thing the trigger
+  // measures. The gap line is gold while the trigger is ready and grey once the thumb has dropped.
+  const gunGeo = new THREE.BufferGeometry();
+  gunGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3)); // knuckle, fingertip, thumb tip, the place on the finger nearest the thumb
+  const gunBarrel = new THREE.Line(gunGeo, new THREE.LineBasicMaterial({ color: 0x9fd8ff, depthTest: false, transparent: true, opacity: 0.9 }));
+  gunBarrel.geometry.setDrawRange(0, 2);
+  const gapGeo = new THREE.BufferGeometry();
+  gapGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const gunGapMat = new THREE.LineBasicMaterial({ color: 0xffd88a, depthTest: false, transparent: true, opacity: 0.95 });
+  const gunGap = new THREE.Line(gapGeo, gunGapMat);
+  const tipGeo = new THREE.BufferGeometry();
+  tipGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const gunTips = new THREE.Points(tipGeo, new THREE.PointsMaterial({ color: 0x7fd4ff, size: 9, sizeAttenuation: false, depthTest: false, transparent: true, opacity: 0.95 }));
+  const gunG = new THREE.Group();
+  gunG.add(gunBarrel, gunGap, gunTips);
+  [gunBarrel, gunGap, gunTips].forEach((o) => { o.renderOrder = 20; o.frustumCulled = false; });
+  gunG.visible = false;
+  scene.add(gunG);
   // a shot's streak of light, from just below the view to where it was aimed
   const tracerGeo = new THREE.BufferGeometry();
   tracerGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
@@ -342,14 +356,15 @@
   //   so a reading hovering near one level can't fire twice.
   // - A shot counts only if the thumb had been up for 150 ms first (a "deliberate" press), which drops flickers.
   const WIDTH_TO_LENGTH = 1.35, COCK_MS = 150;
-  const trig = Object.assign({ r: 0, hi: 0.8, lo: 0.25, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger2', {}), { cocked: false, since: 0 });
+  const trig = Object.assign({ r: 0, hi: 0.6, lo: 0.2, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger3', {}), { cocked: false, since: 0 });
   const trigF = new OneEuro(3, 1);
   const trigLog = []; // the last half second of readings, to find when a drop began
-  // The reading is an ANGLE. Two lines are drawn on the hand: the thumb, from its base to its tip, and the index
-  // finger, from its knuckle to its tip. With the thumb stuck up, the two are near perpendicular (about 90 degrees);
-  // with the thumb laid down along the finger, they are near parallel (towards 0). The reading is that angle as a share
-  // of a right angle, so 1 is perpendicular and 0 is parallel. The gun fires on the way from perpendicular to parallel.
-  // It is measured on the tracker's 3D hand where there is one, so tilting the hand changes it little. As on the
+  // The reading is a GAP: how far the thumb's tip is from the base of the index finger (the stretch from its knuckle to
+  // its first joint), as a share of the hand's size. Thumb up, the gap is wide (about 0.6); thumb dropped onto the
+  // finger, it closes (about 0.2). This was the game's first trigger. An angle between thumb and finger was tried in
+  // v0.15 and read worse on a real hand: seen from behind, a finger pointing away from the camera is nearly end-on, so
+  // its direction, and any angle made with it, leans on the tracker's guess at depth. A gap between two points that
+  // are both plainly in the picture does not. It is measured on the tracker's 3D hand where there is one. As on the
   // training page's pinch, a frame is ignored when the thumb's length makes no sense for the hand (the tracker has
   // mixed up its points), and the last good reading is kept.
   function thumbReading(res) {
@@ -357,12 +372,13 @@
     const ax = w ? 1 : (vid.videoWidth || 16) / (vid.videoHeight || 9);
     const P = (i) => [l[i].x * ax, l[i].y, w ? l[i].z : 0];
     const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.sqrt(dot(a, a));
-    const thumb = sub(P(4), P(2)), finger = sub(P(8), P(5)), lt = len(thumb), lf = len(finger);
+    const t = P(4), a = P(5), ab = sub(P(6), a), at = sub(t, a);
+    const k = Math.max(0, Math.min(1, dot(at, ab) / (dot(ab, ab) || 1)));
     const l1 = len(sub(P(9), P(0))), l2 = WIDTH_TO_LENGTH * len(sub(P(17), P(5)));
     const size = w ? (l1 + l2) / 2 : Math.max(l1, l2); // in the flat picture a turned hand looks small, so the larger bone is taken
-    if (!(size > 1e-6) || !(lf > 1e-6) || lt / size < 0.25 || lt / size > 1.3) { trig.rejects = (trig.rejects || 0) + 1; return trig.lastRaw == null ? null : trig.lastRaw; }
-    const angle = Math.acos(Math.max(-1, Math.min(1, dot(thumb, finger) / (lt * lf)))) / D;
-    return (trig.lastRaw = Math.min(1.5, angle / 90));
+    const lt = len(sub(P(4), P(2)));
+    if (!(size > 1e-6) || lt / size < 0.25 || lt / size > 1.3) { trig.rejects = (trig.rejects || 0) + 1; return trig.lastRaw == null ? null : trig.lastRaw; }
+    return (trig.lastRaw = len(sub(at, [ab[0] * k, ab[1] * k, ab[2] * k])) / size);
   }
   function feedTrigger(raw, now) {
     if (raw == null || !isFinite(raw)) return;
@@ -382,7 +398,7 @@
     else if (trig.still >= 3 && r > 0.8 * trig.hi) trig.hi += (r - trig.hi) * (trig.cal ? 0.02 : 0.1);
     if (r < trig.lo) trig.lo += (r - trig.lo) * 0.5;
     else if (trig.still >= 3 && r <= 0.8 * trig.hi) trig.lo += (r - trig.lo) * (trig.cal ? 0.03 : 0.3); // measured in practice: then only nudged
-    trig.hi = Math.max(0.45, trig.hi); // thumb-up is never taken to be less than about 40 degrees
+    trig.hi = Math.max(0.3, trig.hi);
     trig.lo = Math.min(0.8 * trig.hi, trig.lo);
     trigLog.push({ t: now, r }); while (trigLog.length && now - trigLog[0].t > 500) trigLog.shift();
     const g = trig.hi - trig.lo;
@@ -421,6 +437,14 @@
         tCap = frameInfo.cap; cam.told = true; cam.delay += (now - frameInfo.cap - cam.delay) * 0.1;
       }
       sight(now, lm[8].x, lm[8].y, tCap);
+      // for the drawn hand: the index knuckle, the fingertip, the thumb's tip, and the place on the base of the finger
+      // nearest the thumb, each as a direction in the room at the moment the picture was taken
+      {
+        const bx = lm[6].x - lm[5].x, by = lm[6].y - lm[5].y, k = Math.max(0, Math.min(1, ((lm[4].x - lm[5].x) * bx + (lm[4].y - lm[5].y) * by) / (bx * bx + by * by || 1)));
+        const at = [[lm[5].x, lm[5].y], [lm[8].x, lm[8].y], [lm[4].x, lm[4].y], [lm[5].x + bx * k, lm[5].y + by * k]];
+        handRaw.pts = handRaw.pts || at.map(() => new THREE.Vector3());
+        at.forEach((uv, i) => videoDir(uv[0], uv[1], handRaw.pts[i]).applyQuaternion(qThen));
+      }
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
       feedTrigger(thumbReading(res), now);
     } else { handRaw.ok = false; trig.cocked = false; trigF.reset(); }
@@ -565,7 +589,7 @@
   }
   function endPractice(done) {
     if (PR.disc) { scene.remove(PR.disc.m); PR.disc = null; }
-    if (done) { trig.cal = true; store.set('skeetVRPracticed2', true); store.set('skeetVRTrigger2', { hi: trig.hi, lo: trig.lo, cal: true }); $('practice').checked = false; }
+    if (done) { trig.cal = true; store.set('skeetVRPracticed3', true); store.set('skeetVRTrigger3', { hi: trig.hi, lo: trig.lo, cal: true }); $('practice').checked = false; }
     S.practice = { done: !!done, discs: PR.n, drops: PR.drops, secs: Math.round((performance.now() - PR.t0) / 1000), up: +trig.hi.toFixed(2), down: +trig.lo.toFixed(2) };
     startRound();
   }
@@ -587,9 +611,9 @@
       PR.hold = on ? PR.hold + real : 0;
       if (PR.hold >= 0.5) { PR.step = 2; PR.hold = 0; PR.up = 0; PR.upN = 0; sfx('count'); }
     } else if (PR.step === 2) {
-      // thumb up: a steady reading above 45 degrees, held half a second, becomes this player's "up"
-      const up = trig.r > 0.5 && trig.still >= 2;
-      line = 'Stick your thumb straight up'; tip = up ? 'Good, hold it\u2026' : 'Thumb at a right angle to your finger';
+      // thumb up: a steady, wide gap, held half a second, becomes this player's "up"
+      const up = trig.r > 0.38 && trig.still >= 2;
+      line = 'Stick your thumb straight up'; tip = up ? 'Good, hold it\u2026' : 'Thumb well clear of your finger';
       if (up) { PR.hold += real; PR.up += trig.r; PR.upN++; } else { PR.hold = 0; PR.up = 0; PR.upN = 0; }
       if (PR.hold >= 0.5) { trig.hi = PR.up / PR.upN; PR.step = 3; PR.hold = 0; PR.armed = true; PR.low = 0; PR.lowN = 0; sfx('go'); }
     } else {
@@ -717,7 +741,7 @@
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
     store.set('skeetVRRounds', rows.slice(-200));
-    if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger2', { hi: trig.hi, lo: trig.lo, cal: !!trig.cal }); // the learned thumb levels, for next time
+    if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger3', { hi: trig.hi, lo: trig.lo, cal: !!trig.cal }); // the learned thumb levels, for next time
     S.endLines = [`Hit ${m.hit} of ${m.thrown} · best run ${m.best}`, `${m.shots} shots · ${m.shots ? Math.round(row.acc * 100) : 0}% hit`].concat(
       S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time`] : [], ['Look here, or fire, to play again']);
     S.phase = 'end'; S.dwell = 0; S.endAt = performance.now();
@@ -805,8 +829,16 @@
       crossMat.color.setHex(S.mode === 'hand' && !trig.cocked ? 0x9fb0c6 : 0xffd88a);
       crossMat.opacity = S.mode === 'hand' && handRaw.edge < 0.08 ? 0.4 : 0.95; // faint where the camera is about to lose the hand
     }
-    fdot.visible = S.mode === 'hand' && handRaw.ok && rest.on;
-    if (fdot.visible) { handNow(now, tmpC); fdot.position.copy(tmpC).multiplyScalar(BR); fdot.quaternion.copy(camera.quaternion); }
+    // the drawn finger and thumb: each point where the camera saw it, moved along with the steadied fingertip
+    gunG.visible = S.mode === 'hand' && handRaw.ok && !!handRaw.pts;
+    if (gunG.visible) {
+      handNow(now, tmpC).sub(handRaw.pts[1]); // how far the steadied fingertip has come from where it was seen
+      const put = (arr, i, k) => { tmpB.copy(handRaw.pts[k]).add(tmpC).normalize().multiplyScalar(BR); arr[i * 3] = tmpB.x; arr[i * 3 + 1] = tmpB.y; arr[i * 3 + 2] = tmpB.z; };
+      const g = gunGeo.attributes.position.array, q = gapGeo.attributes.position.array, t = tipGeo.attributes.position.array;
+      put(g, 0, 0); put(g, 1, 1); put(q, 0, 2); put(q, 1, 3); put(t, 0, 1); put(t, 1, 2);
+      gunGeo.attributes.position.needsUpdate = gapGeo.attributes.position.needsUpdate = tipGeo.attributes.position.needsUpdate = true;
+      gunGapMat.color.setHex(trig.cocked ? 0xffd88a : 0x8b98a8);
+    }
     tracer.visible = now < shot.until;
 
     const w = S.w, h = S.h; // the renderer takes these in screen pixels and applies the pixel ratio itself
@@ -885,7 +917,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>

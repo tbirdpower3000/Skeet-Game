@@ -49,20 +49,26 @@ it. **Practice first** on the setup page stays ticked until it has been done onc
 These carry over what the hand-control training page and Hand Hub learned about
 pinches and cursors:
 
-- **The reading is an angle.** Two lines are drawn on the hand: the thumb, from its base
-  to its tip, and the index finger, from its knuckle to its tip. Thumb up, they are near
-  perpendicular (about 90°); thumb laid along the finger, near parallel (towards 0°). The
-  gun fires on the way from perpendicular to parallel. The angle is measured on the
-  tracker's 3D hand, so tilting the hand does not change it, and it goes through the One
-  Euro filter (3 Hz, beta 1).
+- **The reading is a gap.** How far the thumb's tip is from the base of the index finger
+  (from its knuckle to its first joint), as a share of the hand's size. Thumb up, the gap
+  is wide; thumb dropped onto the finger, it closes. It is measured on the tracker's 3D
+  hand and goes through the One Euro filter (3 Hz, beta 1).
+- **Tried and dropped: an angle.** v0.15 read the angle between thumb and finger and
+  fired from perpendicular to parallel. On a real hand it read worse. Seen from behind, a
+  finger pointing away from the camera is nearly end-on, so its direction leans on the
+  tracker's guess at depth; a gap between two points plainly in the picture does not.
 - **Frames that make no sense are ignored.** If the thumb's length is wrong for the hand
   (the tracker has mixed up its points), the last good reading is kept, as the training
   page does for the pinch.
+- **You can see what the game sees.** Drawn over your hand: a line along the index
+  finger, a dot on the fingertip, a dot on the thumb's tip, and a line across the gap
+  being measured. The gap line is gold while the trigger is ready, grey once the thumb
+  has dropped.
 - **Two levels with a gap.** The shot fires on the way down, 35% of the way up from
   thumb-down; the trigger is cocked again 60% of the way up. A reading hovering near
   one level can't fire twice.
 - **Learning your thumb.** The practice step measures your own "up" and "down" (see
-  above), and they are kept for next time (`skeetVRTrigger2`). After that they move only
+  above), and they are kept for next time (`skeetVRTrigger3`). After that they move only
   slowly. Without the practice they are learned from where your thumb comes to rest.
 - **Deliberate shots.** A shot counts only if the thumb had been up for 150 ms first.
 - **Keeping the shot on target.** Dropping the thumb nudges the whole hand, so a thumb
@@ -139,6 +145,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.16** (26 Nov 2026): The trigger goes back to the first measure, the gap between the thumb's tip and the base of the index finger, which read better on a real hand than v0.15's angle; the practice step now measures your own gap. The view draws your index finger, fingertip, thumb tip and the gap between them, as the game sees them
 - **v0.15** (26 Nov 2026): A practice step before the round (point at a still disc, thumb up, drop your thumb to break it, three times), which also measures your own thumb. The trigger now reads the angle between thumb and index finger and fires on the way from perpendicular to parallel
 - **v0.14** (26 Nov 2026): Runs on the shared VR engine (the VR-Portal repo, engine 1.0.0): the drawing surface, lens fitting, text signs, filters, camera, hand finder, sound and saved settings are loaded from there and no longer kept in this page. Nothing should look or play differently
 - **v0.13** (26 Nov 2026): Easy on the arm is now off unless chosen, so the crosshair follows the fingertip as before; a bolder crosshair; a blue dot on the fingertip when Easy on the arm is on; the Ready prompt says when the hand is found, with a count of sightings
