@@ -32,17 +32,45 @@ turn the phone sideways and put it in the viewer. Fire once to begin.
 Before a round with the finger gun, a disc hangs still straight ahead, and the game asks
 for one thing at a time:
 
-1. **Point your finger at the disc.** The ring must rest on it for half a second.
-2. **Stick your thumb straight up.** Held steady for half a second, this becomes your
-   own "thumb up".
-3. **Drop your thumb onto your finger.** Where it comes to rest becomes your "thumb
-   down", and the disc breaks.
+1. **Point at the disc, thumb up.** The ring only has to be near the disc. Held steady for
+   a third of a second, the gap between thumb and finger becomes your own "thumb up".
+2. **Drop your thumb to fire.** Where it comes to rest becomes your "thumb down", and the
+   disc breaks. Dropping the thumb jerks the hand, so the shot counts if the ring was near
+   the disc at any moment in the last 0.7 s.
 
 Three discs, each in a slightly different place. Each line of the prompt says what the
 game is waiting for, so it shows which part is not being read: the hand, the aim or the
 thumb. It follows the training page's pinch step (open hand, firm pinch, three times):
 the player learns the gesture and the game learns the player. The viewer's button skips
 it. **Practice first** on the setup page stays ticked until it has been done once.
+
+## The hand box
+
+One of three ways to aim with the finger gun (**How it aims** on the setup page; the
+others are *on my fingertip*, the default, and *easy on the arm*).
+
+- **The box.** A box five palm-widths across is drawn round your hand, in the room. It
+  starts centred where your hand is first seen. Push past an edge and the box comes with
+  you (at up to 120° a second), so no edge is out of reach and a still hand gives a still
+  crosshair. It is the same "interaction zone" as Hand Hub's, moved to a camera on the
+  head.
+- **What is followed.** The middle of the wrist and four knuckles, not the fingertip:
+  steadier, and it barely moves when the thumb drops. The atlas's cursor follows the same
+  five points.
+- **From box to field: a change of variables.** Where your hand is in the box, x and y
+  from −1 to 1, becomes where the crosshair is in the field. If the hand were equally
+  likely to be anywhere in the box, the crosshair should spend its time where the clays
+  are. The clays' directions over 400 simulated flights give a density p(angle); the map
+  that turns a uniform x into that density is the inverse of its running total,
+  angle = F⁻¹((x+1)/2). Its slope, 1 / (2 p(angle)), is the Jacobian: where clays are
+  common the slope is small, so the hand has more room per degree and aiming is finer.
+  That map is mixed half and half with a straight-line one over a slightly wider field,
+  so the crosshair can also reach where clays rarely go. Left and right are mirrored.
+- **What that comes to** (measured): the field is about 45° either side and from 7° below
+  to 18° above level. Across, the crosshair moves about twice as far as the hand; up and
+  down, where the clays keep to a narrow band, about half as far, which is the fine
+  control. With a hand 5° right and 4° up of where it started, the crosshair was 9.7°
+  right and 2° up.
 
 ## How the trigger and aim work
 
@@ -90,13 +118,17 @@ pinches and cursors:
   fingertip.
 - **Forgiving shots.** If that aim misses, the shot may count from anywhere the
   crosshair was in the 150 ms before it.
-- **Steady crosshair.** The fingertip goes through a median of three and the One Euro
-  filter, with more smoothing near the edge of the camera's view, where the crosshair
-  also fades to warn that the hand is about to be lost. **Steadiness** on the setup page
-  chooses how hard it smooths: Normal is the training page's cursor filter (0.8 Hz, beta
-  3); Steadier (0.45 Hz, beta 2) and Steadiest (0.25 Hz, beta 1.4) are calmer and trail a
-  quick hand a little. A hand that is nearly still is not carried forward between camera
-  pictures, since its measured speed is then mostly the tracker's own shake.
+- **Steady crosshair, smoothed as the atlas does.** A median of three, then the One Euro
+  filter, with its cutoff lowered near the edge of the camera's view and while a nearly
+  still hand jitters. Beside it runs the atlas's tracker for a moving hand
+  (`VRE.Motion`), which leads a fast hand a little to cancel the camera's delay and stops
+  leading when the hand brakes. **Steadiness** on the setup page chooses how hard it
+  smooths: Normal (0.8 Hz, beta 3), Steadier (0.45 Hz, beta 2, the default) or Steadiest
+  (0.25 Hz, beta 1.4). With a stand-in hand held still, the atlas's method cut the
+  crosshair's shake by about 40% at each setting.
+- **A tracker jump is not smoothed.** A jump faster than any hand (the tracker losing
+  the hand, or mixing up its points) restarts the filters where the hand now is. Before
+  this, a 15° jump left the crosshair overshooting by 8.7° for 0.4 s; now 0.3°.
 - A shot breaks any clay it passes within 2.5° of. Clays are drawn far bigger than
   real ones (1.6 m across) so they are easy to see and hit 17 m away.
 
@@ -149,6 +181,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.18** (26 Nov 2026): A third way to aim, the hand box: a box drawn round your hand that follows it, with small hand movements sweeping the crosshair over the whole field. Smoothing as in the Planetary Modeling Atlas (engine 1.2.0), and a tracker jump no longer throws the crosshair. Practice is easier: two steps a disc, a wider zone round the disc, and a shot counts if the ring was near the disc a moment before
 - **v0.17** (26 Nov 2026): Steadier tracking, with a Steadiness setting (Normal, Steadier, Steadiest; Steadier by default); a nearly still hand is no longer carried forward on its own shake; the drawn finger and thumb are eased so they do not shiver. A choice of camera lens: Auto, Fisheye (widest) or Regular
 - **v0.16** (26 Nov 2026): The trigger goes back to the first measure, the gap between the thumb's tip and the base of the index finger, which read better on a real hand than v0.15's angle; the practice step now measures your own gap. The view draws your index finger, fingertip, thumb tip and the gap between them, as the game sees them
 - **v0.15** (26 Nov 2026): A practice step before the round (point at a still disc, thumb up, drop your thumb to break it, three times), which also measures your own thumb. The trigger now reads the angle between thumb and index finger and fires on the way from perpendicular to parallel

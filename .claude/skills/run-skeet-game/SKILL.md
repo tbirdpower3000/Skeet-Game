@@ -99,7 +99,7 @@ gh run list --repo tbirdpower3000/Skeet-Game --limit 1
   by every game on the site; the driver sets it before the page loads.
 - **"GPU stall due to ReadPixels" console warnings** come from taking screenshots with
   software rendering. They are harmless.
-- **Gaze shots fire by resting on a clay** for a third of a second, so the driver only has to look at it. Thumb shots need `__fake.thumb` to go from about 0.6 to 0.2 and back: the stand-in's thumb makes an angle of `thumb × 90` degrees with its index finger.
+- **Gaze shots fire by resting on a clay** for a third of a second, so the driver only has to look at it. Thumb shots need `__fake.thumb` to go from about 0.6 to 0.2 and back: the stand-in's thumb tip sits `thumb × hand size` from the base of its index finger, which is the gap the trigger reads.
 
 - **The shared engine comes from the VR-Portal site,** which the sandbox cannot reach.
   The driver serves `../vr-portal/v1/vr-engine.js` in its place when that checkout exists

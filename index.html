@@ -45,7 +45,10 @@
   <div class="card">
     <h2 style="margin-top:0">Aim</h2>
     <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
-    <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" /><span><b>Easy on the arm</b><br /><span class="muted">Off (the usual way): the crosshair sits on your fingertip and goes where your finger goes. On: your head does the big aiming and your hand only the fine. The crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength, so your arm can stay low and bent. A small dot still shows where your fingertip is.</span></span></label>
+    <div class="opt" role="radiogroup" aria-label="How the finger gun aims" style="display:block;padding:6px 0 6px 28px"><b>How it aims</b><br />
+      <label style="display:block"><input type="radio" name="aimHow" value="tip" checked /> <b>On my fingertip.</b> <span class="muted">The crosshair sits on your fingertip and goes where your finger goes.</span></label>
+      <label style="display:block"><input type="radio" name="aimHow" value="box" /> <b>Hand box.</b> <span class="muted">A box is drawn round your hand and follows it. Moving your hand inside the box sweeps the crosshair over the whole field, so small movements reach everywhere. Push past an edge and the box comes with you.</span></label>
+      <label style="display:block"><input type="radio" name="aimHow" value="fine" /> <b>Easy on the arm.</b> <span class="muted">The crosshair sits where you look; your hand nudges it at half strength from wherever it rests.</span></label></div>
     <label class="opt" style="padding-left:28px"><input type="checkbox" id="practice" /><span><b>Practice first</b><br /><span class="muted">Before the round, a disc hangs still in front of you. You point at it, stick your thumb up, and drop your thumb to break it, three times. This also teaches the game how far your own thumb moves. Ticked until you have done it once.</span></span></label>
     <label class="opt" style="padding-left:28px" for="steady"><span style="flex:1"><b>Steadiness</b> <output id="steadyO">Steadier</output><br /><input type="range" id="steady" min="0" max="2" step="1" value="1" style="width:100%" /><br /><span class="muted">How firmly the crosshair is held still. More is calmer but trails a quick hand a little.</span></span></label>
     <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Hold it on a clay for a moment and it fires by itself; the viewer's button fires too. No camera needed.</span></span></label>
@@ -102,7 +105,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.17';
+  const VERSION = 'v0.18';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -117,7 +120,7 @@
         `<tr><td>${new Date(r.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${r.mode === 'hand' ? 'Finger gun' : 'Gaze'}</td><td>${r.hit}/${r.thrown}</td><td>${r.shots}</td><td>${r.shots ? Math.round(r.acc * 100) + '%' : '–'}</td><td>${r.mode === 'hand' ? r.trigger.thumb : '–'}</td><td>${r.mode === 'hand' && r.hand ? Math.round(r.hand.lostPct * 100) + '%' : '–'}</td></tr>`).join('');
   }
   drawRounds();
-  $('fine').checked = store.get('skeetVRFine2', false);
+  { const how = store.get('skeetVRAimHow', 'tip'); document.querySelectorAll('input[name=aimHow]').forEach((r) => { r.checked = r.value === how; r.onchange = () => store.set('skeetVRAimHow', r.value); }); }
   $('practice').checked = !store.get('skeetVRPracticed3', false);
   const steadyShow = () => { $('steadyO').textContent = ['Normal', 'Steadier', 'Steadiest'][+$('steady').value]; };
   $('steady').value = store.get('skeetVRSteady', 1); steadyShow();
@@ -213,6 +216,12 @@
   [gunBarrel, gunGap, gunTips].forEach((o) => { o.renderOrder = 20; o.frustumCulled = false; });
   gunG.visible = false;
   scene.add(gunG);
+  // the hand box, drawn round the hand in the room, with a dot where the hand is in it
+  const boxGeo = new THREE.BufferGeometry();
+  boxGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+  const boxLine = new THREE.LineLoop(boxGeo, new THREE.LineBasicMaterial({ color: 0x7fd4ff, depthTest: false, transparent: true, opacity: 0.7 }));
+  boxLine.renderOrder = 19; boxLine.frustumCulled = false; boxLine.visible = false;
+  scene.add(boxLine);
   // a shot's streak of light, from just below the view to where it was aimed
   const tracerGeo = new THREE.BufferGeometry();
   tracerGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
@@ -313,7 +322,8 @@
   // every turn of the head drags the crosshair along and it snaps back at the next picture.
   const CAM_DELAY = 70;  // milliseconds from a picture being taken to the page having it, when the browser does not say
   const UNIT = 1.4;      // radians across the camera picture, so the filter's settings keep their meaning
-  const handRaw = { ok: false, yaw: 0, pitch: 0, vy: 0, vp: 0, t: 0, label: '', edge: 1 };
+  const handRaw = { ok: false, yaw: 0, pitch: 0, vy: 0, vp: 0, t: 0, label: '', edge: 1, fast: 0, calm: 1, palm: 0.12, ref: new THREE.Vector3(0, 0, -1) };
+  const handMot = VRE.Motion ? new VRE.Motion() : null; // the atlas's tracker for a moving hand (engine 1.2.0 and later)
   const headLog = [];    // where the head has pointed over the last four tenths of a second
   let headJump = false;  // the view was just set straight ahead again: directions from before no longer mean the same
   const qThen = new THREE.Quaternion(), qInv = new THREE.Quaternion(), sv = new THREE.Vector3();
@@ -333,24 +343,32 @@
     videoDir(u, v, sv).applyQuaternion(headAt(tCap, qThen));
     const yaw = Math.atan2(sv.x, -sv.z), pitch = Math.asin(Math.max(-1, Math.min(1, sv.y)));
     if (!isFinite(yaw) || !isFinite(pitch)) { S.badSight = (S.badSight || 0) + 1; return; } // a sighting that makes no sense is dropped, not passed on
-    // median of three, then One Euro, with more smoothing near the edge of the camera picture, where the tracker's
-    // points jump (down to about a third right at the border)
+    // Smoothed the way the Planetary Modeling Atlas smooths its hand cursor: a median of three (drops one-frame
+    // spikes), then the One Euro filter, with its cutoff turned down near the edge of the camera picture (where the
+    // tracker's points jump) and while a nearly still hand jitters (the tracker's "calm"). Beside it runs the atlas's
+    // tracker for a moving hand, which leads a fast hand a little to cancel the camera's delay and stops leading when
+    // the hand brakes; the result slides from the smoothed point to the led one as the hand speeds up.
     const edge = Math.min(u, 1 - u, v, 1 - v);
-    if (!handRaw.ok) aimF.reset();
-    aimF.x.minCut = aimF.y.minCut = AIM_F.minCut * (edge < 0.08 ? 0.35 + 0.65 * (Math.max(0, edge) / 0.08) : 1);
-    const fy = aimF.x.f(aimF.mx.f(yaw / UNIT), tCap) * UNIT, fp = aimF.y.f(aimF.my.f(pitch / UNIT), tCap) * UNIT;
-    const ds = (tCap - handRaw.t) / 1000;
-    if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vy += ((fy - handRaw.yaw) / ds - handRaw.vy) * 0.5; handRaw.vp += ((fp - handRaw.pitch) / ds - handRaw.vp) * 0.5; }
-    else handRaw.vy = handRaw.vp = 0;
-    handRaw.ok = true; handRaw.yaw = fy; handRaw.pitch = fp; handRaw.t = tCap; handRaw.edge = edge;
+    // A jump faster than any hand (more than half the picture's width between two sightings a moment apart) is the
+    // tracker losing the hand and finding it again, or mixing up its points. Nothing is smoothed or led across it:
+    // the filters start afresh where the hand now is, as when the hand first appears.
+    const jump = handRaw.ok && tCap - handRaw.t < 200 && Math.hypot(yaw - handRaw.rawYaw, pitch - handRaw.rawPitch) / UNIT > 0.5 * Math.max(0.033, (tCap - handRaw.t) / 1000) / 0.1;
+    if (jump) S.jumps = (S.jumps || 0) + 1;
+    handRaw.rawYaw = yaw; handRaw.rawPitch = pitch;
+    if (!handRaw.ok || jump) { aimF.reset(); if (handMot) handMot.reset(); }
+    const mo = handMot ? handMot.step([yaw / UNIT, pitch / UNIT], tCap) : { lead: [yaw / UNIT, pitch / UNIT], fast: 0, calm: 1 };
+    aimF.x.minCut = aimF.y.minCut = AIM_F.minCut * (edge < 0.08 ? 0.35 + 0.65 * (Math.max(0, edge) / 0.08) : 1) * mo.calm;
+    const sy = aimF.x.f(aimF.mx.f(yaw / UNIT), tCap), sp = aimF.y.f(aimF.my.f(pitch / UNIT), tCap);
+    handRaw.yaw = (sy + (mo.lead[0] - sy) * mo.fast) * UNIT; handRaw.pitch = (sp + (mo.lead[1] - sp) * mo.fast) * UNIT;
+    handRaw.vy = handMot ? handMot.vl[0] * UNIT : 0; handRaw.vp = handMot ? handMot.vl[1] * UNIT : 0; // speed averaged over 80 ms: a tremor cancels out
+    handRaw.fast = mo.fast; handRaw.calm = mo.calm;
+    handRaw.ok = true; handRaw.t = tCap; handRaw.edge = edge; handRaw.ref.copy(sv);
   }
   // the fingertip's direction in the room now: where it was last seen, carried forward at its speed across the time
   // since that picture was taken (at most a tenth of a second), so the crosshair moves every frame
   function handNow(now, out) {
-    // a hand that is nearly still is not carried forward at all: its measured speed is then mostly the tracker's own
-    // shake, and carrying that forward would add to it
-    const sp = Math.hypot(handRaw.vy, handRaw.vp), k = Math.max(0, Math.min(1, (sp - 0.12) / 0.25));
-    const a = Math.min(0.1, Math.max(0, (now - handRaw.t) / 1000)) * k, yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
+    // carried forward only while the hand is really moving (the tracker's "fast"), and for at most a twentieth of a second
+    const a = Math.min(0.05, Math.max(0, (now - handRaw.t) / 1000)) * (handRaw.fast || 0), yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
     return out.set(Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
   }
   // Easy on the arm: the head does the big aiming and the hand the fine. The crosshair is where you look, moved by how
@@ -453,7 +471,11 @@
       if (frameInfo.cap != null && Math.abs(frameInfo.mt - vid.currentTime) < 0.02 && now - frameInfo.cap > 0 && now - frameInfo.cap < 300) {
         tCap = frameInfo.cap; cam.told = true; cam.delay += (now - frameInfo.cap - cam.delay) * 0.1;
       }
-      sight(now, lm[8].x, lm[8].y, tCap);
+      // What is followed: the fingertip, or, with the hand box, the middle of the wrist and knuckles, which is steadier
+      // and barely moves when the thumb drops (the atlas's cursor follows the same five points).
+      const pu = box.on ? (lm[0].x + lm[5].x + lm[9].x + lm[13].x + lm[17].x) / 5 : lm[8].x, pv = box.on ? (lm[0].y + lm[5].y + lm[9].y + lm[13].y + lm[17].y) / 5 : lm[8].y;
+      sight(now, pu, pv, tCap);
+      { const asp = vid.videoWidth && vid.videoHeight ? vid.videoHeight / vid.videoWidth : 0.5625, w = Math.hypot(lm[5].x - lm[17].x, (lm[5].y - lm[17].y) * asp); if (w > 0.01) handRaw.palm += (w - handRaw.palm) * 0.1; } // the palm's width, as a share of the picture's
       // for the drawn hand: the index knuckle, the fingertip, the thumb's tip, and the place on the base of the finger
       // nearest the thumb, each as a direction in the room at the moment the picture was taken
       {
@@ -550,13 +572,65 @@
     for (const e of aimLog) if (e.t <= t && e.t >= t - FORGIVE) { const off = offThen(e); if (off < best) { best = off; pick = e; } }
     return best <= SPREAD ? pick : at;
   }
+  // ---------- the hand box ----------
+  // A box round the hand, in the room. Its size is set by the hand itself (five palm-widths across),
+  // it starts centred where the hand is first seen, and when the hand pushes past an edge the box is dragged along,
+  // so no edge is ever out of reach and a still hand gives a still crosshair. This is the Kinect-style "interaction
+  // zone" already used by Hand Hub and the training page, moved from a webcam to a camera on the head.
+  //
+  // Where the hand is in the box, x and y from -1 to 1, is turned into where the crosshair is in the field by a change
+  // of variables. If the hand were equally likely to be anywhere in the box, where should the crosshair spend its time?
+  // Where the clays are. The clays' directions over a few hundred flights give a density p(angle); the map that turns
+  // a uniform x into that density is the inverse of its running total (the quantile function), angle = F^-1((x+1)/2).
+  // Its slope, d(angle)/dx = 1 / (2 p(angle)), is the Jacobian of the change: where clays are common the slope is
+  // small, so the hand has more room per degree there and aiming is finer; where they are rare it is steep and quick.
+  // That map alone would never reach beyond the clays, so it is mixed half and half with a plain straight-line map
+  // over a slightly wider field. Across and up-down are treated separately, so the area factor is the product of the
+  // two slopes.
+  const box = { on: false, has: false, cy: 0, cp: 0, hx: 0.25, hy: 0.2, x: 0, y: 0, w: 0, sum: 0, n: 0 };
+  const REACH_PALMS = 5; // Hand Hub uses 3.8 at a desk; here the field is wider, and a larger box keeps the crosshair calmer
+  const FIELD = (function () {
+    const yaws = [], pitches = [];
+    for (let i = 0; i < 400; i++) { // the same throw as launch(), flown without drawing it
+      const from = i % 2 ? HIGH : LOW, cx = (Math.random() * 2 - 1) * 2.7, cy = 2.5 + Math.random() * 2.2, cz = -17 + (Math.random() * 2 - 1) * 2, tc = 1.5 + Math.random() * 0.3;
+      let x = from.x, y = from.y, z = from.z, vx = (cx - from.x) / tc, vy = (cy - from.y) / tc + 0.5 * G * tc, vz = (cz - from.z) / tc;
+      for (let t = 0; t < 6 && y >= -1.5; t += 0.04) { vy -= G * 0.04; x += vx * 0.04; y += vy * 0.04; z += vz * 0.04; const yaw = Math.atan2(x, -z); if (t > 0.4 && Math.abs(yaw) < 40 * D) { yaws.push(yaw, -yaw); pitches.push(Math.atan2(y, Math.hypot(x, z))); } } // only where a clay can be shot at, and mirrored: the field is the same left and right
+    }
+    const make = (arr) => {
+      arr.sort((a, b) => a - b);
+      const q = (p) => { const k = Math.max(0, Math.min(1, p)) * (arr.length - 1), i = Math.floor(k), f = k - i; return arr[i] + (arr[Math.min(arr.length - 1, i + 1)] - arr[i]) * f; };
+      const lo = q(0.01), hi = q(0.99), pad = 0.15 * (hi - lo);
+      return (x) => { const p = (Math.max(-1, Math.min(1, x)) + 1) / 2; return 0.5 * (lo - pad + (hi - lo + 2 * pad) * p) + 0.5 * q(p); };
+    };
+    const gx = make(yaws), gy = make(pitches);
+    return { gx, gy, slope: (g, x) => (g(x + 0.01) - g(x - 0.01)) / 0.02 };
+  })();
+  // the training page's soft landing: inside 4% of an edge the crosshair eases in rather than stopping hard
+  const soft = (u) => { u = Math.max(0, Math.min(1, u)); if (u > 0.04 && u < 0.96) return u; const e = Math.max(0, Math.min(1, u <= 0.04 ? u / 0.04 : (1 - u) / 0.04)), ease = e * e * (3 - 2 * e); return u <= 0.04 ? 0.04 * ease : 1 - 0.04 * ease; };
+  function boxAim(hy, hp, out) {
+    const clampTo = (v, a, b) => Math.max(a, Math.min(b, v));
+    const w = clampTo(handRaw.palm * UNIT, 4 * D, 18 * D); // the palm's width as an angle in the view
+    box.w = box.w ? box.w + (w - box.w) * 0.05 : w;
+    box.hx = clampTo((REACH_PALMS / 2) * box.w, 8 * D, 30 * D); box.hy = 0.8 * box.hx;
+    if (!box.has) { box.cy = hy; box.cp = hp; box.has = true; }
+    // dragged along at the edges, but no faster than 120 degrees a second: a fast hand is briefly led ahead of itself,
+    // and a box that jumped after that lead would be left too far over when the hand settles
+    const step = 120 * D * Math.min(0.05, box.dt || 0.016);
+    box.cy += clampTo(clampTo(box.cy, hy - box.hx, hy + box.hx) - box.cy, -step, step); box.cp += clampTo(clampTo(box.cp, hp - box.hy, hp + box.hy) - box.cp, -step, step);
+    box.x = soft((hy - (box.cy - box.hx)) / (2 * box.hx)) * 2 - 1; box.y = soft((hp - (box.cp - box.hy)) / (2 * box.hy)) * 2 - 1;
+    const yaw = FIELD.gx(box.x), pitch = FIELD.gy(box.y), c = Math.cos(pitch);
+    if (S.m) { box.sum += box.hx / D; box.n++; }
+    return out.set(Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
+  }
   function updateBlade(now, dt) {
     const was = blade.ok;
     tmpB.copy(blade.dir);
     if (S.mode === 'hand') {
       if (handRaw.ok) {
         handNow(now, tmpA);
-        if (rest.on) {
+        box.dt = dt;
+        if (box.on) boxAim(Math.atan2(tmpA.x, -tmpA.z), Math.asin(Math.max(-1, Math.min(1, tmpA.y))), tmpA);
+        else if (rest.on) {
           // The hand's direction in the room, against its resting direction in the room. Measured in the room, a hand
           // that stays where it is while the head turns changes nothing: the crosshair simply goes with the head.
           const hy = Math.atan2(tmpA.x, -tmpA.z), hp = Math.asin(Math.max(-1, Math.min(1, tmpA.y)));
@@ -570,7 +644,7 @@
         if (isFinite(tmpA.x + tmpA.y + tmpA.z)) blade.dir.copy(tmpA); // already smoothed where the fingertip was found
         else { aimF.reset(); handRaw.ok = false; rest.has = false; S.badAim = (S.badAim || 0) + 1; }
         blade.ok = true; blade.lastSeen = now;
-      } else if (now - blade.lastSeen > 350) { blade.ok = false; rest.has = false; }
+      } else if (now - blade.lastSeen > 350) { blade.ok = false; rest.has = false; if (now - blade.lastSeen > 1200) box.has = false; } // a hand gone for more than a second gets a fresh box when it returns
     } else {
       blade.dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
       blade.ok = true;
@@ -583,9 +657,9 @@
 
   // ---------- practice ----------
   // Before a round, one thing at a time, with a disc that hangs still straight ahead:
-  //   1. point at it (the crosshair must rest on it for half a second);
-  //   2. stick your thumb up (held steady for half a second: this is taken as your "thumb up");
-  //   3. drop your thumb onto your finger (where it comes to rest is taken as your "thumb down"): the disc breaks.
+  //   1. point at it with your thumb up (near the disc, thumb steady, for a third of a second: that gap is taken as your
+  //      "thumb up");
+  //   2. drop your thumb onto your finger (where it comes to rest is taken as your "thumb down"): the disc breaks.
   // Three discs, each somewhere a little different. Like the training page's pinch step (open hand, firm pinch, three
   // times), it teaches the player the gesture and teaches the game this player's own thumb at the same time. The
   // viewer's button skips it. Each line of the prompt says what the game is waiting for.
@@ -599,7 +673,7 @@
     PR.disc = { m, v: new THREE.Vector3() };
   }
   function startPractice() {
-    Object.assign(PR, { step: 1, n: 0, hold: 0, up: 0, upN: 0, armed: false, low: 0, lowN: 0, next: 0, away: 0, msg: '', t0: performance.now(), drops: 0 });
+    Object.assign(PR, { since: performance.now(), fired: 0, step: 1, n: 0, hold: 0, up: 0, upN: 0, armed: false, low: 0, lowN: 0, next: 0, away: 0, msg: '', t0: performance.now(), drops: 0 });
     if (PR.disc) scene.remove(PR.disc.m);
     practiceDisc();
     S.phase = 'practice'; recentre = true;
@@ -617,37 +691,41 @@
     fwd2.set(0, 0, -1).applyQuaternion(camera.quaternion);
     PR.away = Math.abs(Math.atan2(fwd2.x, -fwd2.z)) / D > 35 ? PR.away + real : 0;
     if (PR.away > 1) { PR.away = 0; recentre = true; }
-    const d = PR.disc, seen = blade.ok && handRaw.ok, on = !!d && seen && offOne(blade.dir, d.m.position) <= SPREAD + 1.5;
+    // Generous on purpose: the ring only has to be near the disc (within 5 degrees of its edge), and a shot counts if
+    // the ring was near the disc at any moment in the last 0.7 s, because dropping the thumb jerks the hand.
+    const NEAR = SPREAD + 2.5, d = PR.disc, seen = blade.ok && handRaw.ok, on = !!d && seen && offOne(blade.dir, d.m.position) <= NEAR;
+    const wasOn = () => !!d && aimLog.some((e) => now - e.t <= 700 && offOne(e.d, d.m.position) <= NEAR);
     if (d) d.m.rotation.y += 2 * real;
     let line = '', tip = '';
     if (!d) { // a disc has just been broken: the next one comes in a moment, or the round begins
       line = PR.n >= 3 ? 'That is it. Here come the clays' : 'Broken! Thumb back up';
-      if (now >= PR.next) { if (PR.n >= 3) return endPractice(true); practiceDisc(); PR.step = 1; PR.hold = 0; PR.armed = false; }
+      if (now >= PR.next) { if (PR.n >= 3) return endPractice(true); practiceDisc(); PR.step = 1; PR.hold = 0; PR.armed = false; PR.since = now; }
     } else if (!seen) { line = 'Hold a finger gun out in front'; tip = 'Finger pointing, thumb up'; PR.hold = 0; }
     else if (PR.step === 1) {
-      line = 'Point your finger at the disc'; tip = on ? 'Hold it there\u2026' : 'Move the ring onto it';
-      PR.hold = on ? PR.hold + real : 0;
-      if (PR.hold >= 0.5) { PR.step = 2; PR.hold = 0; PR.up = 0; PR.upN = 0; sfx('count'); }
-    } else if (PR.step === 2) {
-      // thumb up: a steady, wide gap, held half a second, becomes this player's "up"
-      const up = trig.r > 0.38 && trig.still >= 2;
-      line = 'Stick your thumb straight up'; tip = up ? 'Good, hold it\u2026' : 'Thumb well clear of your finger';
-      if (up) { PR.hold += real; PR.up += trig.r; PR.upN++; } else { PR.hold = 0; PR.up = 0; PR.upN = 0; }
-      if (PR.hold >= 0.5) { trig.hi = PR.up / PR.upN; PR.step = 3; PR.hold = 0; PR.armed = true; PR.low = 0; PR.lowN = 0; sfx('go'); }
+      // one thing to do: point at the disc with the thumb up. A steady, open gap for a third of a second is taken as
+      // this player's "thumb up", whatever its size
+      const up = trig.r > 0.3 && trig.still >= 2;
+      line = 'Point at the disc, thumb up'; tip = !on ? 'Move the ring onto the disc' : up ? 'Hold it there\u2026' : 'Thumb up, clear of your finger';
+      if (on && up) { PR.hold += real; PR.up += trig.r; PR.upN++; } else { PR.hold = 0; PR.up = 0; PR.upN = 0; }
+      if (PR.hold >= 0.35) { trig.hi = PR.up / PR.upN; PR.step = 2; PR.hold = 0; PR.armed = true; PR.low = 0; PR.lowN = 0; PR.fired = 0; sfx('go'); }
     } else {
-      // the drop: from "up", the reading falls by more than a third and comes to rest; where it rests is "down"
-      line = 'Now drop your thumb onto your finger'; tip = on ? 'to break the disc' : 'Keep the ring on the disc';
+      // the drop: from "up", the gap closes by more than a third and comes to rest (or the game's own trigger fires);
+      // where it rests is taken as "thumb down"
+      line = 'Now drop your thumb to fire'; tip = PR.armed ? 'Thumb down onto your finger' : 'Thumb back up first';
       if (!PR.armed && trig.r > 0.85 * trig.hi) PR.armed = true;
-      const down = PR.armed && trig.r < 0.65 * trig.hi && trig.still >= 2;
+      const down = PR.armed && trig.r < 0.65 * trig.hi && trig.still >= 1;
       if (down) { PR.low += trig.r; PR.lowN++; } else { PR.low = 0; PR.lowN = 0; }
-      if (PR.lowN >= 2) {
-        PR.drops++; PR.armed = false;
-        const lo = PR.low / PR.lowN;
+      if (PR.lowN >= 2 || (PR.armed && now - PR.fired < 250 && trig.r < 0.8 * trig.hi)) {
+        PR.drops++; PR.armed = false; PR.fired = 0;
+        const lo = PR.lowN ? PR.low / PR.lowN : trig.r;
         trig.lo = PR.n === 0 ? lo : trig.lo + (lo - trig.lo) * 0.5;
-        if (on) { shatter(d); PR.disc = null; PR.n++; PR.next = now + 900; sfx('shot', panOf(blade.dir)); }
-        else { PR.step = 1; PR.hold = 0; sfx('dry'); PR.msg = 'That fired, but off the disc. Point first'; PR.msgT = now + 2200; }
+        PR.low = 0; PR.lowN = 0;
+        if (on || wasOn()) { shatter(d); PR.disc = null; PR.n++; PR.next = now + 900; sfx('shot', panOf(blade.dir)); }
+        else { sfx('dry'); PR.msg = 'That fired, away from the disc. Thumb up, try again'; PR.msgT = now + 2500; }
       }
     }
+    // a way out is always offered once a disc has taken a while
+    if (d && now - (PR.since || PR.t0) > 12000) tip = TOUCH ? 'The viewer\'s button skips practice' : 'A click skips practice';
     note.visible = true;
     drawText(note, ['Practice ' + Math.min(3, PR.n + 1) + ' of 3', now < (PR.msgT || 0) ? PR.msg : line].concat(tip ? [tip] : []));
   }
@@ -657,7 +735,7 @@
   function fire(src, aimT) {
     const now = performance.now();
     if (!S.on || !S.ready) return;
-    if (S.phase === 'practice') { if (src === 'tap') endPractice(false); return; } // the viewer's button skips the practice
+    if (S.phase === 'practice') { if (src === 'tap') endPractice(false); else if (src === 'thumb') PR.fired = now; return; } // the button skips the practice; the trigger's own shot counts as a drop
     if (S.phase === 'wait' || (S.phase === 'end' && now > S.endAt + 1500)) return startRound();
     if (S.phase !== 'play' || now - shot.last < 250) return;
     shot.last = now;
@@ -740,6 +818,7 @@
   function startRound() {
     S.clays.forEach((c) => scene.remove(c.m)); S.clays = [];
     S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, dwell: 0, flickers: 0, rewSum: 0, rewN: 0, kickSum: 0, kickN: 0, offSum: 0, offN: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
+    box.sum = 0; box.n = 0;
     S.plan = makePlan(CLAYS); S.cued = false; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
     panel.visible = false; hud.visible = true;
     recentre = true;
@@ -750,11 +829,11 @@
     const row = {
       v: 1, ver: VERSION, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
-      steady: AIM_F.level, camLens: S.camLens || '', camWide: S.camWide || '', practice: S.practice, fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
+      steady: AIM_F.level, camLens: S.camLens || '', camWide: S.camWide || '', practice: S.practice, aimHow: S.mode === 'hand' ? S.aimHow : 'gaze', boxHalfDeg: box.n ? +(box.sum / box.n).toFixed(1) : null, fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
       camDelay: Math.round(cam.delay), camTold: cam.told,
       trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, rewind: m.rewN ? Math.round(m.rewSum / m.rewN) : null, kick: m.kickN ? m.kickSum / m.kickN : null, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
-      screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, handOn: handSys.on, handErr: handSys.err, handLooks: { found: roi.found, moves: roi.moves, badSight: S.badSight || 0, badAim: S.badAim || 0 }, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
+      screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, handOn: handSys.on, handErr: handSys.err, handLooks: { found: roi.found, moves: roi.moves, jumps: S.jumps || 0, badSight: S.badSight || 0, badAim: S.badAim || 0 }, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
     const rows = store.get('skeetVRRounds', []);
     rows.push(row);
@@ -801,7 +880,7 @@
     last = now;
     pace(now, gap);
     applyHead();
-    if (headJump) { headJump = false; headLog.length = 0; aimLog.length = 0; handRaw.ok = false; rest.has = false; } // straight ahead was just set again
+    if (headJump) { headJump = false; headLog.length = 0; aimLog.length = 0; handRaw.ok = false; rest.has = false; box.has = false; } // straight ahead was just set again
     headLog.push({ t: now, q: camera.quaternion.clone() }); while (headLog.length && now - headLog[0].t > 400) headLog.shift();
     if (S.mode === 'hand') trackHand(now);
     updateBlade(now, dt);
@@ -850,12 +929,18 @@
     // the drawn finger and thumb: each point where the camera saw it, moved along with the steadied fingertip
     gunG.visible = S.mode === 'hand' && handRaw.ok && !!handRaw.pts;
     if (gunG.visible) {
-      handNow(now, tmpC).sub(handRaw.pts[1]); // how far the steadied fingertip has come from where it was seen
+      handNow(now, tmpC).sub(handRaw.ref); // how far the steadied point has come from where it was seen
       const put = (arr, i, k) => { tmpB.copy(handRaw.pts[k]).add(tmpC).normalize().multiplyScalar(BR); arr[i * 3] = tmpB.x; arr[i * 3 + 1] = tmpB.y; arr[i * 3 + 2] = tmpB.z; };
       const g = gunGeo.attributes.position.array, q = gapGeo.attributes.position.array, t = tipGeo.attributes.position.array;
       put(g, 0, 0); put(g, 1, 1); put(q, 0, 2); put(q, 1, 3); put(t, 0, 1); put(t, 1, 2);
       gunGeo.attributes.position.needsUpdate = gapGeo.attributes.position.needsUpdate = tipGeo.attributes.position.needsUpdate = true;
       gunGapMat.color.setHex(trig.cocked ? 0xffd88a : 0x8b98a8);
+    }
+    boxLine.visible = S.mode === 'hand' && box.on && box.has && handRaw.ok;
+    if (boxLine.visible) {
+      const a = boxGeo.attributes.position.array;
+      [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach((k, i) => { const yaw = box.cy + k[0] * box.hx, pitch = box.cp + k[1] * box.hy, c = Math.cos(pitch); a[i * 3] = Math.sin(yaw) * c * BR; a[i * 3 + 1] = Math.sin(pitch) * BR; a[i * 3 + 2] = -Math.cos(yaw) * c * BR; });
+      boxGeo.attributes.position.needsUpdate = true;
     }
     tracer.visible = now < shot.until;
 
@@ -893,7 +978,7 @@
     window.addEventListener('deviceorientation', onOrient);
     S.mode = want; S.why = '';
     setSteady(+$('steady').value);
-    rest.on = $('fine').checked; rest.has = false; store.set('skeetVRFine2', rest.on);
+    { const how = (document.querySelector('input[name=aimHow]:checked') || {}).value || 'tip'; rest.on = how === 'fine'; box.on = how === 'box'; rest.has = box.has = false; S.aimHow = how; }
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
       try { S.stream = await startCamera(); } catch (e) {
@@ -936,7 +1021,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { AIM_F, setSteady, gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { box, FIELD, AIM_F, setSteady, gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>
