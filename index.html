@@ -45,6 +45,7 @@
   <div class="card">
     <h2 style="margin-top:0">Aim</h2>
     <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
+    <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" checked /><span><b>Easy on the arm</b><br /><span class="muted">Your head does the big aiming and your hand only the fine: the crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength. Your arm can stay low and bent. Off: the crosshair sits on your fingertip.</span></span></label>
     <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Hold it on a clay for a moment and it fires by itself; the viewer's button fires too. No camera needed.</span></span></label>
     <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the targets instead of the virtual range.</span></span></label>
     <label class="opt"><input type="checkbox" id="lensOn" checked /><span><b>Fit the picture to the lenses</b><br /><span class="muted">Shapes and places each eye's picture for a Google Cardboard (2015) viewer: centred behind each lens, at true size, with the lenses' stretching towards the edges taken out. Turn it off for another kind of viewer.</span></span></label>
@@ -105,6 +106,7 @@
         `<tr><td>${new Date(r.t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td>${r.mode === 'hand' ? 'Finger gun' : 'Gaze'}</td><td>${r.hit}/${r.thrown}</td><td>${r.shots}</td><td>${r.shots ? Math.round(r.acc * 100) + '%' : '–'}</td><td>${r.mode === 'hand' ? r.trigger.thumb : '–'}</td><td>${r.mode === 'hand' && r.hand ? Math.round(r.hand.lostPct * 100) + '%' : '–'}</td></tr>`).join('');
   }
   drawRounds();
+  $('fine').checked = store.get('skeetVRFine', true);
   // a QR code for this page's own address (without any ?options), so it can be opened on the phone by scanning the screen
   (function () {
     const url = location.origin + location.pathname;
@@ -388,7 +390,7 @@
       if (recentre) {
         fwd.set(0, 0, -1).applyQuaternion(devQ);
         yawQ.setFromAxisAngle(upY, -Math.atan2(-fwd.x, -fwd.z));
-        recentre = false;
+        recentre = false; headJump = true;
       }
       camera.quaternion.copy(yawQ).multiply(devQ);
     } else {
@@ -432,15 +434,53 @@
   const AIM_F = { minCut: 0.8, beta: 3 }; // the training page's cursor filter
   const aimF = { x: new OneEuro(AIM_F.minCut, AIM_F.beta), y: new OneEuro(AIM_F.minCut, AIM_F.beta), mx: med3(), my: med3(), reset() { this.x.reset(); this.y.reset(); this.mx.reset(); this.my.reset(); } };
   let landmarker = null, lastVT = -1, detN = 0, detMs = 0, skip = false;
-  const handRaw = { ok: false, u: 0, v: 0, vu: 0, vv: 0, t: 0, label: '', edge: 1 };
-  // the fingertip now: the last place it was found, carried forward at its speed for at most a twentieth of a second.
-  // The camera sees the hand less often than the screen redraws, so this keeps the crosshair moving every frame.
-  function handNow(now, o) {
-    const a = Math.min(0.05, Math.max(0, (now - handRaw.t) / 1000)), cl = (x) => Math.max(0, Math.min(1, x));
-    o[0] = cl(handRaw.u + handRaw.vu * a); o[1] = cl(handRaw.v + handRaw.vv * a);
-    return o;
+  // The hand is kept as a direction in the ROOM, not as a place in the camera's picture. A camera picture is old by the
+  // time the page has it (the camera's own delay, then the hand finder's), and the camera is on your head: so each
+  // sighting is turned by where the head was pointing when the picture was TAKEN, not where it points now. Otherwise
+  // every turn of the head drags the crosshair along and it snaps back at the next picture.
+  const CAM_DELAY = 70;  // milliseconds from a picture being taken to the page having it, when the browser does not say
+  const UNIT = 1.4;      // radians across the camera picture, so the filter's settings keep their meaning
+  const handRaw = { ok: false, yaw: 0, pitch: 0, vy: 0, vp: 0, t: 0, label: '', edge: 1 };
+  const headLog = [];    // where the head has pointed over the last four tenths of a second
+  let headJump = false;  // the view was just set straight ahead again: directions from before no longer mean the same
+  const qThen = new THREE.Quaternion(), qInv = new THREE.Quaternion(), sv = new THREE.Vector3();
+  function headAt(t, out) {
+    for (let i = headLog.length - 1; i >= 0; i--) if (headLog[i].t <= t) return out.copy(headLog[i].q);
+    return out.copy(headLog.length ? headLog[0].q : camera.quaternion);
   }
-  const hn = [0, 0];
+  // when the browser says when each camera picture was taken, that is used; it is remembered here per picture
+  const frameInfo = { mt: -1, cap: null }, cam = { delay: CAM_DELAY, told: false };
+  function watchFrames() {
+    if (!vid.requestVideoFrameCallback) return;
+    const cb = (now, meta) => { frameInfo.mt = meta.mediaTime; frameInfo.cap = typeof meta.captureTime === 'number' ? meta.captureTime : null; if (S.on) vid.requestVideoFrameCallback(cb); };
+    vid.requestVideoFrameCallback(cb);
+  }
+  // one sighting of the fingertip: at (u, v) in a picture taken at time tCap
+  function sight(now, u, v, tCap) {
+    videoDir(u, v, sv).applyQuaternion(headAt(tCap, qThen));
+    const yaw = Math.atan2(sv.x, -sv.z), pitch = Math.asin(Math.max(-1, Math.min(1, sv.y)));
+    // median of three, then One Euro, with more smoothing near the edge of the camera picture, where the tracker's
+    // points jump (down to about a third right at the border)
+    const edge = Math.min(u, 1 - u, v, 1 - v);
+    if (!handRaw.ok) aimF.reset();
+    aimF.x.minCut = aimF.y.minCut = AIM_F.minCut * (edge < 0.08 ? 0.35 + 0.65 * (Math.max(0, edge) / 0.08) : 1);
+    const fy = aimF.x.f(aimF.mx.f(yaw / UNIT), tCap) * UNIT, fp = aimF.y.f(aimF.my.f(pitch / UNIT), tCap) * UNIT;
+    const ds = (tCap - handRaw.t) / 1000;
+    if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vy += ((fy - handRaw.yaw) / ds - handRaw.vy) * 0.5; handRaw.vp += ((fp - handRaw.pitch) / ds - handRaw.vp) * 0.5; }
+    else handRaw.vy = handRaw.vp = 0;
+    handRaw.ok = true; handRaw.yaw = fy; handRaw.pitch = fp; handRaw.t = tCap; handRaw.edge = edge;
+  }
+  // the fingertip's direction in the room now: where it was last seen, carried forward at its speed across the time
+  // since that picture was taken (at most a tenth of a second), so the crosshair moves every frame
+  function handNow(now, out) {
+    const a = Math.min(0.1, Math.max(0, (now - handRaw.t) / 1000)), yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
+    return out.set(Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
+  }
+  // Easy on the arm: the head does the big aiming and the hand the fine. The crosshair is where you look, moved by how
+  // far the hand is from its resting place, at half strength. The resting place follows the hand slowly (about two
+  // seconds) while nothing is in the air and holds still during a throw, so the arm can settle wherever is comfortable.
+  const FINE_GAIN = 0.5;
+  const rest = { on: false, x: 0, y: 0, has: false };
   // One rear camera is opened, and always the one with the widest view. The phone lists its rear cameras by name once the
   // camera is allowed. A separate ultra-wide (0.5x) camera is taken first; failing that, a combined camera ("Triple",
   // "Dual Wide") that can zoom out to the ultra-wide lens; failing that, the ordinary one. Whichever opens is then zoomed
@@ -520,6 +560,7 @@
   const WIDTH_TO_LENGTH = 1.35, COCK_MS = 150;
   const trig = Object.assign({ r: 0, hi: 0.6, lo: 0.2, cocked: false, since: 0, fireAt: 0, cockAt: 0 }, store.get('skeetVRTrigger', {}), { cocked: false, since: 0 });
   const trigF = new OneEuro(3, 1);
+  const trigLog = []; // the last half second of readings, to find when a drop began
   function thumbReading(res) {
     const w = res.worldLandmarks && res.worldLandmarks[0], l = w || res.landmarks[0];
     const ax = w ? 1 : (vid.videoWidth || 16) / (vid.videoHeight || 9);
@@ -546,6 +587,7 @@
     else if (trig.still >= 3 && r <= 0.8 * trig.hi) trig.lo += (r - trig.lo) * 0.3;
     trig.hi = Math.max(0.3, trig.hi);
     trig.lo = Math.min(0.8 * trig.hi, trig.lo);
+    trigLog.push({ t: now, r }); while (trigLog.length && now - trigLog[0].t > 500) trigLog.shift();
     const g = trig.hi - trig.lo;
     trig.fireAt = trig.lo + 0.35 * g;
     trig.cockAt = Math.max(trig.fireAt + 0.12 * trig.hi, trig.lo + 0.6 * g);
@@ -553,7 +595,14 @@
     if (!trig.cocked && r > trig.cockAt) { trig.cocked = true; trig.since = now; }
     else if (trig.cocked && r < trig.fireAt) {
       trig.cocked = false;
-      if (now - trig.since >= COCK_MS) fire('thumb'); else if (S.m) S.m.flickers++;
+      if (now - trig.since >= COCK_MS) {
+        // When the drop began: the last moment the thumb was still up (within a quarter of the way down). The shot is
+        // aimed from 30 ms before that, so a slow, careful thumb is given a longer look back and a snappy one a shorter,
+        // never less than 60 ms nor more than 250.
+        let on = now;
+        for (let i = trigLog.length - 1; i >= 0; i--) { on = trigLog[i].t; if (trigLog[i].r >= trig.hi - 0.25 * g) break; }
+        fire('thumb', Math.min(now - 60, Math.max(now - 250, on - 30)));
+      } else if (S.m) S.m.flickers++;
     }
   }
   function trackHand(now) {
@@ -568,16 +617,12 @@
     skip = ms > 28;
     const lm = res && res.landmarks && res.landmarks[0];
     if (lm) {
-      // the fingertip: median of three, then One Euro, with more smoothing near the edge of the camera picture, where the
-      // tracker's points jump (down to about a third right at the border)
-      const edge = Math.min(lm[8].x, 1 - lm[8].x, lm[8].y, 1 - lm[8].y);
-      if (!handRaw.ok) aimF.reset();
-      aimF.x.minCut = aimF.y.minCut = AIM_F.minCut * (edge < 0.08 ? 0.35 + 0.65 * (Math.max(0, edge) / 0.08) : 1);
-      const fu = aimF.x.f(aimF.mx.f(lm[8].x), now), fv = aimF.y.f(aimF.my.f(lm[8].y), now);
-      const ds = (now - handRaw.t) / 1000;
-      if (handRaw.ok && ds > 0 && ds < 0.2) { handRaw.vu += ((fu - handRaw.u) / ds - handRaw.vu) * 0.5; handRaw.vv += ((fv - handRaw.v) / ds - handRaw.vv) * 0.5; }
-      else handRaw.vu = handRaw.vv = 0;
-      handRaw.ok = true; handRaw.u = fu; handRaw.v = fv; handRaw.t = now; handRaw.edge = edge;
+      // when this picture was taken: what the browser says if it says, else a usual delay ago
+      let tCap = now - CAM_DELAY;
+      if (frameInfo.cap != null && Math.abs(frameInfo.mt - vid.currentTime) < 0.02 && now - frameInfo.cap > 0 && now - frameInfo.cap < 300) {
+        tCap = frameInfo.cap; cam.told = true; cam.delay += (now - frameInfo.cap - cam.delay) * 0.1;
+      }
+      sight(now, lm[8].x, lm[8].y, tCap);
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
       feedTrigger(thumbReading(res), now);
     } else { handRaw.ok = false; trig.cocked = false; trigF.reset(); }
@@ -590,8 +635,8 @@
   const G = 2.9;        // gravity on a clay: gentle for a field this size, so it hangs in the air long enough to aim
   const CLAY_R = 0.8;   // a clay's radius in metres: far bigger than a real one, so it is easy to see and hit 17 m away
   const SPREAD = 2.5;   // degrees a shot may pass outside a clay's edge and still break it
-  const AIM_BACK = 120; // a thumb shot goes where the crosshair was this many milliseconds earlier, before the thumb's
-                        // own movement pulled the hand off the target
+  const AIM_BACK = 120; // a thumb shot with no record of when the thumb began to drop goes where the crosshair was this
+                        // many milliseconds earlier
   const DWELL = 0.3;    // aiming by gaze: seconds the crosshair must rest on a clay to fire by itself
   const FORGIVE = 150;  // and it may count from anywhere the crosshair was in the 150 ms before that: the training page's
                         // "forgiving press", for a crosshair that had just slipped off the target
@@ -638,50 +683,66 @@
     const lx = (u - 0.5) * pic.lx, ly = -(v - 0.5) * pic.ly, c = Math.cos(pic.rz), sn = Math.sin(pic.rz);
     return out.set(lx * c - ly * sn, lx * sn + ly * c, -30).normalize();
   }
-  // where the crosshair has been lately, so a thumb shot can go where it was just before the thumb moved
+  // Where the crosshair has been lately, and where the clays were at each of those moments. A thumb shot is aimed from
+  // a moment ago, before the thumb's own movement pulled the hand off; it is judged against where the clays were at
+  // that same moment, not where they have flown on to since.
   const aimLog = [];
-  function aimAt(t, out) {
-    for (let i = aimLog.length - 1; i >= 0; i--) if (aimLog[i].t <= t) return out.copy(aimLog[i].d);
-    return out.copy(aimLog.length ? aimLog[0].d : blade.dir);
+  function aimEntry(t) {
+    for (let i = aimLog.length - 1; i >= 0; i--) if (aimLog[i].t <= t) return aimLog[i];
+    return aimLog.length ? aimLog[0] : null;
   }
-  // how far outside the nearest clay's edge an aim passes, in degrees (negative: inside the clay)
+  // how far outside a clay's edge an aim passes, in degrees (negative: inside the clay), with the clay at position p
+  const offOne = (dir, p) => { const d = p.length(); return dir.angleTo(tmpA.copy(p).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D; };
+  // the same for the nearest clay, as the clays are now
   function offClay(dir) {
     let best = 99;
-    for (const c of S.clays) { const d = c.m.position.length(), off = dir.angleTo(tmpA.copy(c.m.position).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D; if (off < best) best = off; }
+    for (const c of S.clays) { const off = offOne(dir, c.m.position); if (off < best) best = off; }
     return best;
   }
-  // the aim a shot is given: where the crosshair was at time t, or, if that misses, the place it came nearest a clay in
-  // the 150 ms before
-  function shotAim(t, out) {
-    aimAt(t, out);
-    let best = offClay(out);
-    if (best <= SPREAD) return out;
-    for (const e of aimLog) if (e.t <= t && e.t >= t - FORGIVE) { const off = offClay(e.d); if (off < best) { best = off; out.copy(e.d); } }
-    return best <= SPREAD ? out : aimAt(t, out);
+  const offThen = (e) => { let best = 99; for (const k of e.cl) { const off = offOne(e.d, k.p); if (off < best) best = off; } return best; };
+  // the moment a shot is judged at: time t, or, if the aim missed then, the moment in the 150 ms before when the
+  // crosshair came nearest a clay
+  function shotMoment(t) {
+    const at = aimEntry(t);
+    if (!at) return null;
+    let pick = at, best = offThen(at);
+    if (best <= SPREAD) return at;
+    for (const e of aimLog) if (e.t <= t && e.t >= t - FORGIVE) { const off = offThen(e); if (off < best) { best = off; pick = e; } }
+    return best <= SPREAD ? pick : at;
   }
   function updateBlade(now, dt) {
     const was = blade.ok;
     tmpB.copy(blade.dir);
     if (S.mode === 'hand') {
       if (handRaw.ok) {
-        handNow(now, hn);
-        videoDir(hn[0], hn[1], tmpA).applyQuaternion(camera.quaternion);
+        handNow(now, tmpA);
+        if (rest.on) {
+          // The hand's direction in the room, against its resting direction in the room. Measured in the room, a hand
+          // that stays where it is while the head turns changes nothing: the crosshair simply goes with the head.
+          const hy = Math.atan2(tmpA.x, -tmpA.z), hp = Math.asin(Math.max(-1, Math.min(1, tmpA.y)));
+          if (!rest.has) { rest.x = hy; rest.y = hp; rest.has = true; }
+          else if (!S.clays.length) { const k = Math.min(1, dt / 2); rest.x += (hy - rest.x) * k; rest.y += (hp - rest.y) * k; }
+          tmpC.set(0, 0, -1).applyQuaternion(camera.quaternion);
+          const cy = Math.atan2(tmpC.x, -tmpC.z) + FINE_GAIN * (hy - rest.x), cp = Math.asin(Math.max(-1, Math.min(1, tmpC.y))) + FINE_GAIN * (hp - rest.y), cc = Math.cos(cp);
+          tmpA.set(Math.sin(cy) * cc, Math.sin(cp), -Math.cos(cy) * cc);
+          if (S.m) { S.m.offSum += Math.hypot(hy - rest.x, hp - rest.y) / D; S.m.offN++; }
+        }
         blade.dir.copy(tmpA); // already smoothed where the fingertip was found
         blade.ok = true; blade.lastSeen = now;
-      } else if (now - blade.lastSeen > 350) blade.ok = false;
+      } else if (now - blade.lastSeen > 350) { blade.ok = false; rest.has = false; }
     } else {
       blade.dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
       blade.ok = true;
     }
     const inst = was && blade.ok && dt > 0 ? (tmpB.angleTo(blade.dir) / D) / dt : 0;
     blade.speed += (Math.min(inst, 2500) - blade.speed) * 0.5;
-    if (blade.ok) { aimLog.push({ t: now, d: blade.dir.clone() }); while (aimLog.length && now - aimLog[0].t > 500) aimLog.shift(); }
+    if (blade.ok) { aimLog.push({ t: now, d: blade.dir.clone(), cl: S.clays.map((c) => ({ c, p: c.m.position.clone() })) }); while (aimLog.length && now - aimLog[0].t > 600) aimLog.shift(); }
     else aimLog.length = 0;
   }
 
   // a shot, from the thumb trigger or the viewer's button. Before and after a round it starts the round instead.
   const shot = { kick: 0, until: 0, last: 0, dir: new THREE.Vector3() };
-  function fire(src) {
+  function fire(src, aimT) {
     const now = performance.now();
     if (!S.on || !S.ready) return;
     if (S.phase === 'wait' || (S.phase === 'end' && now > S.endAt + 1500)) return startRound();
@@ -690,12 +751,19 @@
     if (!blade.ok) return sfx('dry');
     const m = S.m;
     m.shots++; m[src]++;
-    shotAim(src === 'thumb' ? now - AIM_BACK : now, shot.dir);
+    // a thumb shot is aimed from just before the thumb began to drop (the trigger says when that was); other shots from now
+    const t = src === 'thumb' ? (aimT != null ? aimT : now - AIM_BACK) : now, e = shotMoment(t);
+    if (!e) return sfx('dry');
+    shot.dir.copy(e.d);
+    if (src === 'thumb') {
+      m.rewSum += now - t; m.rewN++;
+      const a0 = aimEntry(t); if (a0) { m.kickSum += a0.d.angleTo(blade.dir) / D; m.kickN++; } // how far the thumb's drop moved the crosshair
+    }
     let hits = 0, nearest = 99;
-    for (let i = S.clays.length - 1; i >= 0; i--) {
-      const c = S.clays[i], d = c.m.position.length(), off = shot.dir.angleTo(tmpA.copy(c.m.position).divideScalar(d)) / D - Math.atan(CLAY_R / d) / D;
+    for (const k of e.cl) {
+      const off = offOne(e.d, k.p), i = S.clays.indexOf(k.c);
       if (off < nearest) nearest = off;
-      if (off <= SPREAD) { shatter(c); S.clays.splice(i, 1); hits++; }
+      if (off <= SPREAD && i >= 0) { shatter(k.c); S.clays.splice(i, 1); hits++; } // it breaks where it is now
     }
     if (hits) { m.hit += hits; m.goodShots++; m.streak += hits; if (m.streak > m.best) m.best = m.streak; }
     else if (nearest < 30) { m.missN++; m.missSum += nearest; }
@@ -758,7 +826,7 @@
   }
   function startRound() {
     S.clays.forEach((c) => scene.remove(c.m)); S.clays = [];
-    S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, dwell: 0, flickers: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
+    S.m = { thrown: 0, hit: 0, shots: 0, goodShots: 0, thumb: 0, tap: 0, dwell: 0, flickers: 0, rewSum: 0, rewN: 0, kickSum: 0, kickN: 0, offSum: 0, offN: 0, streak: 0, best: 0, missN: 0, missSum: 0, handFrames: 0, lostFrames: 0, thumbHi: 0, thumbLo: 9 };
     S.plan = makePlan(CLAYS); S.cued = false; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
     panel.visible = false; hud.visible = true;
     recentre = true;
@@ -769,7 +837,9 @@
     const row = {
       v: 1, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
-      trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
+      fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
+      camDelay: Math.round(cam.delay), camTold: cam.told,
+      trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, rewind: m.rewN ? Math.round(m.rewSum / m.rewN) : null, kick: m.kickN ? m.kickSum / m.kickN : null, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
       screen: [innerWidth, innerHeight], cam: S.cam || '', camFps: S.camFps || 0, fps: perf.sum ? (1000 * perf.n) / perf.sum : 0, res: perf.pr,
     };
@@ -853,6 +923,8 @@
     last = now;
     pace(now, gap);
     applyHead();
+    if (headJump) { headJump = false; headLog.length = 0; aimLog.length = 0; handRaw.ok = false; rest.has = false; } // straight ahead was just set again
+    headLog.push({ t: now, q: camera.quaternion.clone() }); while (headLog.length && now - headLog[0].t > 400) headLog.shift();
     if (S.mode === 'hand') trackHand(now);
     updateBlade(now, dt);
     const fireWord = S.mode === 'hand' ? 'Drop your thumb, or press the button' : TOUCH ? 'Press the viewer\'s button' : 'Click';
@@ -931,6 +1003,7 @@
     } catch (e) {}
     window.addEventListener('deviceorientation', onOrient);
     S.mode = want; S.why = '';
+    rest.on = $('fine').checked; rest.has = false; store.set('skeetVRFine', rest.on);
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
       try { S.stream = await startCamera(); } catch (e) {
@@ -942,6 +1015,7 @@
       say('Loading the hand tracker…');
       try { await loadHands(); } catch (e) { S.mode = 'head'; S.why = 'No hand tracker: aiming by gaze'; say('The hand tracker could not be loaded, so the crosshair follows your gaze.'); }
     }
+    if (S.stream) watchFrames();
     vplane.visible = !!(S.showRoom && S.stream);
     room.visible = !vplane.visible;
     $('setup').hidden = true; $('vr').hidden = false; $('mid').hidden = !STEREO;
@@ -971,7 +1045,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { S, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v) { if (u == null) handRaw.ok = false; else { handRaw.ok = true; handRaw.u = u; handRaw.v = v; handRaw.vu = handRaw.vv = 0; handRaw.t = performance.now(); } }, setMode(m) { S.mode = m; } };
+  window.__skeet = { S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>

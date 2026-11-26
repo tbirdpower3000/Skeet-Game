@@ -43,8 +43,23 @@ pinches and cursors:
   rest, and kept for next time (`skeetVRTrigger`), so a thumb that only drops part of
   the way still gets a trigger that fits it.
 - **Deliberate shots.** A shot counts only if the thumb had been up for 150 ms first.
-- **Keeping the shot on target.** Dropping the thumb nudges the whole hand, so a
-  thumb shot goes where the crosshair was 120 ms earlier.
+- **Keeping the shot on target.** Dropping the thumb nudges the whole hand, so a thumb
+  shot is aimed from just before the thumb began to drop. That moment is found for each
+  shot from the last half second of thumb readings (30 ms before the thumb left its
+  "up" level, between 60 and 250 ms back), so a slow, careful thumb gets a longer look
+  back than a snappy one.
+- **Judged against where the clay was.** The shot is tested against where each clay was
+  at the moment it is aimed from, not where the clay has flown on to since. Before
+  this, a hand following a clay perfectly could still miss.
+- **The hand is kept in the room.** A camera picture is old by the time the page has it,
+  and the camera is on your head. Each sighting of the hand is turned by where the head
+  was pointing when the picture was taken (the browser's own time for the picture where
+  it gives one, else 70 ms ago), so turning your head no longer drags the crosshair.
+- **Easy on the arm** (on by default). Your head does the big aiming and your hand the
+  fine: the crosshair is where you look, moved by half of how far your hand is from
+  where it rests. The resting place follows the hand slowly between throws and holds
+  still during one, so the arm can stay low and bent. Off: the crosshair sits on your
+  fingertip.
 - **Forgiving shots.** If that aim misses, the shot may count from anywhere the
   crosshair was in the 150 ms before it.
 - **Steady crosshair.** The fingertip goes through a median of three and the One Euro
@@ -58,9 +73,14 @@ the palm). It was made for a hand facing a webcam; here the camera looks along t
 pointing finger from behind, where the palm's direction in the picture is too short
 to rebuild a fingertip from.
 
+These four came from the hand-control research bot's list (lag-compensated hit test,
+head-pose pairing, head-plus-hand aiming, per-shot rewind). They pass with a simulated
+head and hand; none has been tried on a phone yet.
+
 Each round is saved in the browser (`skeetVRRounds`): clays hit, shots, thumb and
 button shots, the range of thumb readings, how far misses passed from the nearest
-clay, flickers that were ignored, the trigger's learned levels, and how often the
+clay, flickers that were ignored, how far back each thumb shot was aimed from, how far the
+hand sat from its resting place, the camera's rate and delay, the trigger's learned levels, and how often the
 hand was lost. **Copy results** on the setup page copies
 them, which is what is needed to tune the trigger.
 
