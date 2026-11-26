@@ -76,6 +76,10 @@
   <h2>Your rounds</h2>
   <div class="scroll"><table id="rounds"></table></div>
   <p><button id="copy">Copy results</button> <button id="clear">Clear</button></p>
+
+  <h2>Record my hand</h2>
+  <label class="opt"><input type="checkbox" id="recOn" /><span><b>Record my hand while I play</b><br /><span class="muted">For tuning the tracking. Keeps where the 21 points of your hand were, where your head pointed, and when clays flew and shots fired, for up to about three minutes of play. No picture is kept. It stays on this page until you save or copy it, and is gone when the page is closed or reloaded.</span></span></label>
+  <p><button id="recSave" disabled>Save recording</button> <button id="recCopy" disabled>Copy recording</button> <span class="muted" id="recInfo">Nothing recorded yet.</span></p>
   <p class="muted">Rounds are kept in this browser only. The camera picture is used on this phone to find your hand and is never stored or sent anywhere. Each round records clays hit, shots fired, how the thumb trigger read, and how often the hand was lost, so the trigger can be tuned.</p>
 </main>
 
@@ -105,7 +109,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.18';
+  const VERSION = 'v0.19';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -130,6 +134,18 @@
     const txt = JSON.stringify({ rounds: store.get('skeetVRRounds', []) }, null, 1);
     try { await navigator.clipboard.writeText(txt); say('Results copied.'); } catch (e) { say('Copying is blocked here.'); }
   };
+  // ---------- recording the hand, for tuning (engine 1.3.0 and later) ----------
+  const rec = VRE.recorder ? VRE.recorder() : null, recQ = new THREE.Quaternion();
+  const recEvent = (name, data) => { if (rec && rec.on) rec.event(performance.now(), name, data); };
+  const r3 = (v) => [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)];
+  function recShow() {
+    const n = rec ? rec.frames : 0;
+    $('recSave').disabled = $('recCopy').disabled = !n;
+    $('recInfo').textContent = !rec ? 'Recording needs a newer engine: reload the page.' : n ? `${n} looks at your hand recorded (${Math.round(rec.size() / 1024)} KB).` : 'Nothing recorded yet.';
+  }
+  recShow();
+  $('recSave').onclick = async () => { const how = await rec.save('skeet-hand-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json'); say(how === 'cancelled' ? '' : 'Recording saved.'); };
+  $('recCopy').onclick = async () => { try { await rec.copy(); say('Recording copied.'); } catch (e) { say('Copying is blocked here. Use Save recording.'); } };
   let clearArmed = 0;
   $('clear').onclick = () => {
     if (Date.now() - clearArmed > 4000) { clearArmed = Date.now(); $('clear').textContent = 'Press again to clear'; return; }
@@ -283,7 +299,8 @@
         recentre = false; headJump = true;
       }
       camera.quaternion.copy(yawQ).multiply(devQ);
-    } else {
+    } else if (drag.q) camera.quaternion.fromArray(drag.q).normalize(); // a replayed head, in tests
+    else {
       eul.set(drag.pitch, drag.yaw, 0, 'YXZ');
       camera.quaternion.setFromEuler(eul);
     }
@@ -486,8 +503,11 @@
         at.forEach((uv, i) => { videoDir(uv[0], uv[1], sv).applyQuaternion(qThen); if (fresh) handRaw.pts[i].copy(sv); else handRaw.pts[i].lerp(sv, 0.4).normalize(); });
       }
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
-      feedTrigger(thumbReading(res), now);
-    } else { handRaw.ok = false; handRaw.ptsOk = false; trig.cocked = false; trigF.reset(); }
+      const reading = thumbReading(res);
+      feedTrigger(reading, now);
+      if (rec && rec.on) { headAt(tCap, recQ); rec.frame(now, now - tCap, recQ.toArray(), lm, res.worldLandmarks && res.worldLandmarks[0], [typeof reading === 'number' && isFinite(reading) ? reading : -1, ms]); }
+    } else {
+      if (rec && rec.on) { headAt(now - cam.delay, recQ); rec.frame(now, cam.delay, recQ.toArray(), null, null); } handRaw.ok = false; handRaw.ptsOk = false; trig.cocked = false; trigF.reset(); }
     if (S.phase === 'play') { if (lm) S.m.handFrames++; else S.m.lostFrames++; }
   }
 
@@ -527,6 +547,7 @@
     scene.add(m);
     S.clays.push({ m, v: new THREE.Vector3((cx - from.x) / tc, (cy - from.y) / tc + 0.5 * G * tc, (cz - from.z) / tc), age: 0, near: 99 });
     S.m.thrown++;
+    recEvent('throw', { from: r3(from), v: r3(S.clays[S.clays.length - 1].v) });
     sfx('launch', panOf(from));
   }
   function shatter(c) {
@@ -676,12 +697,13 @@
     Object.assign(PR, { since: performance.now(), fired: 0, step: 1, n: 0, hold: 0, up: 0, upN: 0, armed: false, low: 0, lowN: 0, next: 0, away: 0, msg: '', t0: performance.now(), drops: 0 });
     if (PR.disc) scene.remove(PR.disc.m);
     practiceDisc();
-    S.phase = 'practice'; recentre = true;
+    S.phase = 'practice'; recentre = true; recEvent('practice');
     hud.visible = false; panel.visible = false;
   }
   function endPractice(done) {
     if (PR.disc) { scene.remove(PR.disc.m); PR.disc = null; }
     if (done) { trig.cal = true; store.set('skeetVRPracticed3', true); store.set('skeetVRTrigger3', { hi: trig.hi, lo: trig.lo, cal: true }); $('practice').checked = false; }
+    recEvent('practiceEnd', { done: !!done, discs: PR.n, up: +trig.hi.toFixed(3), down: +trig.lo.toFixed(3) });
     S.practice = { done: !!done, discs: PR.n, drops: PR.drops, secs: Math.round((performance.now() - PR.t0) / 1000), up: +trig.hi.toFixed(2), down: +trig.lo.toFixed(2) };
     startRound();
   }
@@ -758,6 +780,7 @@
     }
     if (hits) { m.hit += hits; m.goodShots++; m.streak += hits; if (m.streak > m.best) m.best = m.streak; }
     else if (nearest < 30) { m.missN++; m.missSum += nearest; }
+    recEvent('shot', { by: src, hits, dir: r3(shot.dir), near: nearest < 99 ? +nearest.toFixed(2) : null, fireAt: +trig.fireAt.toFixed(3), cockAt: +trig.cockAt.toFixed(3) });
     shot.kick = 1; shot.until = now + 90;
     const p = tracerGeo.attributes.position.array;
     tmpA.set(0.12, -0.3, -0.6).applyQuaternion(camera.quaternion);
@@ -822,7 +845,7 @@
     S.plan = makePlan(CLAYS); S.cued = false; S.dwell = 0; detN = 0; detMs = 0; perf.n = 0; perf.sum = 0;
     panel.visible = false; hud.visible = true;
     recentre = true;
-    S.phase = 'count'; S.count = performance.now(); S.tick = 99;
+    S.phase = 'count'; S.count = performance.now(); S.tick = 99; recEvent('round');
   }
   function endRound() {
     const m = S.m, frames = m.handFrames + m.lostFrames;
@@ -841,7 +864,7 @@
     if (S.mode === 'hand' && m.thumb) store.set('skeetVRTrigger3', { hi: trig.hi, lo: trig.lo, cal: !!trig.cal }); // the learned thumb levels, for next time
     S.endLines = [`Hit ${m.hit} of ${m.thrown} · best run ${m.best}`, `${m.shots} shots · ${m.shots ? Math.round(row.acc * 100) : 0}% hit`].concat(
       S.mode === 'hand' ? [`Hand lost ${Math.round(row.hand.lostPct * 100)}% of the time`] : [], ['Look here, or fire, to play again']);
-    S.phase = 'end'; S.dwell = 0; S.endAt = performance.now();
+    S.phase = 'end'; S.dwell = 0; S.endAt = performance.now(); recEvent('roundEnd', { hit: m.hit, thrown: m.thrown, shots: m.shots });
     hud.visible = false; note.visible = false;
     panel.visible = true;
     sfx('end');
@@ -997,6 +1020,7 @@
     S.on = true;
     resize();
     try { if (navigator.wakeLock) wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+    if (rec && S.mode === 'hand' && $('recOn').checked) rec.start({ game: 'skeet', ver: VERSION, cam: S.cam || '', camFps: S.camFps || 0, camWide: S.camWide || '', camLens: S.camLens || '', vw: vid.videoWidth, vh: vid.videoHeight, aimHow: S.aimHow, steady: AIM_F.level, handOn: handSys.on, camDelay: CAM_DELAY, screen: [innerWidth, innerHeight], trig: { hi: trig.hi, lo: trig.lo, cal: !!trig.cal } });
     S.phase = 'wait'; S.practice = null;
     hud.visible = false; panel.visible = false; recentre = true;
     if (S.mode === 'hand' && $('practice').checked) startPractice();
@@ -1005,6 +1029,7 @@
   }
   function stop() {
     S.on = false; S.phase = 'idle';
+    if (rec) { rec.stop(); recShow(); }
     $('vr').hidden = true; $('turn').hidden = true; $('setup').hidden = false;
     if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; vid.srcObject = null; }
     try { if (wake) wake.release(); } catch (e) {}
@@ -1021,7 +1046,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { box, FIELD, AIM_F, setSteady, gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { rec, headQ(q) { drag.q = q; }, box, FIELD, AIM_F, setSteady, gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>

@@ -181,6 +181,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.19** (26 Nov 2026): "Record my hand while I play" on the start page. It keeps where your hand's points and your head were during play (no picture), and "Save recording" or "Copy recording" hands it over, so the tracking can be tuned against your own hand.
 - **v0.18** (26 Nov 2026): A third way to aim, the hand box: a box drawn round your hand that follows it, with small hand movements sweeping the crosshair over the whole field. Smoothing as in the Planetary Modeling Atlas (engine 1.2.0), and a tracker jump no longer throws the crosshair. Practice is easier: two steps a disc, a wider zone round the disc, and a shot counts if the ring was near the disc a moment before
 - **v0.17** (26 Nov 2026): Steadier tracking, with a Steadiness setting (Normal, Steadier, Steadiest; Steadier by default); a nearly still hand is no longer carried forward on its own shake; the drawn finger and thumb are eased so they do not shiver. A choice of camera lens: Auto, Fisheye (widest) or Regular
 - **v0.16** (26 Nov 2026): The trigger goes back to the first measure, the gap between the thumb's tip and the base of the index finger, which read better on a real hand than v0.15's angle; the practice step now measures your own gap. The view draws your index finger, fingertip, thumb tip and the gap between them, as the game sees them

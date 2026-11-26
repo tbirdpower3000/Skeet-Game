@@ -115,3 +115,7 @@ gh run list --repo tbirdpower3000/Skeet-Game --limit 1
   did not start. Press Exit in a headed run, or read `#status`, for the reason.
 - **`handSightings` is 0 in hand mode:** the stand-in hand is outside every part of the
   picture the page looks at, or smaller than a tenth of the picture; check `__fake`.
+
+## Recording and replaying a real hand
+
+`--record FILE` ticks "Record my hand" and writes the game's recording to FILE at the end. `--replay FILE` plays a recording (from the driver, or one the player saved on their phone) back as the hand, turning the head with it; the output's `replay` says how many recorded looks were handed back. Clays are thrown afresh in a replay, so compare steadiness, hand losses and trigger readings, not hits. `node ../vr-portal/tests/hand-report.cjs FILE` summarises a recording.
