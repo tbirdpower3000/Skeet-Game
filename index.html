@@ -47,8 +47,14 @@
     <label class="opt"><input type="radio" name="aim" value="hand" checked /><span><b>Finger gun</b> (rear camera)<br /><span class="muted">Hold a hand out in front of the viewer like a gun: index finger pointing, thumb up. The crosshair follows your fingertip. Drop your thumb onto your hand to fire, and lift it again for the next shot. The viewer must leave the phone's rear camera uncovered.</span></span></label>
     <label class="opt" style="padding-left:28px"><input type="checkbox" id="fine" /><span><b>Easy on the arm</b><br /><span class="muted">Off (the usual way): the crosshair sits on your fingertip and goes where your finger goes. On: your head does the big aiming and your hand only the fine. The crosshair sits where you look, and your hand nudges it from wherever it rests, at half strength, so your arm can stay low and bent. A small dot still shows where your fingertip is.</span></span></label>
     <label class="opt" style="padding-left:28px"><input type="checkbox" id="practice" /><span><b>Practice first</b><br /><span class="muted">Before the round, a disc hangs still in front of you. You point at it, stick your thumb up, and drop your thumb to break it, three times. This also teaches the game how far your own thumb moves. Ticked until you have done it once.</span></span></label>
+    <label class="opt" style="padding-left:28px" for="steady"><span style="flex:1"><b>Steadiness</b> <output id="steadyO">Steadier</output><br /><input type="range" id="steady" min="0" max="2" step="1" value="1" style="width:100%" /><br /><span class="muted">How firmly the crosshair is held still. More is calmer but trails a quick hand a little.</span></span></label>
     <label class="opt"><input type="radio" name="aim" value="head" /><span><b>My gaze</b><br /><span class="muted">The crosshair sits where you look. Hold it on a clay for a moment and it fires by itself; the viewer's button fires too. No camera needed.</span></span></label>
     <label class="opt"><input type="checkbox" id="room" checked /><span><b>See my room</b><br /><span class="muted">Shows the rear camera behind the targets instead of the virtual range.</span></span></label>
+    <div class="opt" role="radiogroup" aria-label="Camera lens" style="display:block;padding:8px 0"><b>Camera lens</b><br />
+      <label style="margin-right:14px"><input type="radio" name="camLens" value="auto" checked /> Auto</label>
+      <label style="margin-right:14px"><input type="radio" name="camLens" value="wide" /> Fisheye (widest)</label>
+      <label><input type="radio" name="camLens" value="regular" /> Regular</label><br />
+      <span class="muted">Fisheye sees more of the room and keeps your hand in view further out to the sides, but your hand looks smaller to the hand finder. Regular sees less, with your hand larger and steadier. Auto uses the fisheye unless it has failed twice on this phone.</span></div>
     <label class="opt"><input type="checkbox" id="lensOn" checked /><span><b>Fit the picture to the lenses</b><br /><span class="muted">Shapes and places each eye's picture for a Google Cardboard (2015) viewer: centred behind each lens, at true size, with the lenses' stretching towards the edges taken out. Turn it off for another kind of viewer.</span></span></label>
     <label class="opt" for="lensSize"><span style="flex:1"><b>Picture size</b> <output id="lensSizeO">100%</output><br /><input type="range" id="lensSize" min="80" max="125" step="1" value="100" style="width:100%" /><br /><span class="muted">Leave at 100% on an iPhone. On another phone, if things look too big or too small, or the two pictures won't come together, try a little either way.</span></span></label>
     <label class="opt"><input type="checkbox" id="sound" checked /><span><b>Sound</b><br /><span class="muted">On an iPhone the side switch must not be on silent.</span></span></label>
@@ -96,7 +102,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.16';
+  const VERSION = 'v0.17';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -113,6 +119,9 @@
   drawRounds();
   $('fine').checked = store.get('skeetVRFine2', false);
   $('practice').checked = !store.get('skeetVRPracticed3', false);
+  const steadyShow = () => { $('steadyO').textContent = ['Normal', 'Steadier', 'Steadiest'][+$('steady').value]; };
+  $('steady').value = store.get('skeetVRSteady', 1); steadyShow();
+  $('steady').oninput = () => { steadyShow(); store.set('skeetVRSteady', +$('steady').value); };
   VRE.qr(); // the QR code for this page's own address
   $('copy').onclick = async () => {
     const txt = JSON.stringify({ rounds: store.get('skeetVRRounds', []) }, null, 1);
@@ -290,7 +299,12 @@
   // the One Euro filter (steady when still, quick when moving), and a median of the last three values in front of it to
   // drop one-frame spikes.
   const { OneEuro, med3 } = VRE;
-  const AIM_F = { minCut: 0.8, beta: 3 }; // the training page's cursor filter
+  // How steady the crosshair is held. Each setting is a pair for the One Euro filter: how hard it smooths a nearly
+  // still hand, and how quickly it lets go when the hand moves. "Normal" is the training page's cursor filter;
+  // "steadier" and "steadiest" smooth more, at the cost of the crosshair trailing a fast hand a little.
+  const STEADY = [{ minCut: 0.8, beta: 3 }, { minCut: 0.45, beta: 2 }, { minCut: 0.25, beta: 1.4 }];
+  const AIM_F = Object.assign({ level: 1 }, STEADY[1]);
+  function setSteady(n) { AIM_F.level = Math.max(0, Math.min(2, n | 0)); Object.assign(AIM_F, STEADY[AIM_F.level]); aimF.x.beta = aimF.y.beta = AIM_F.beta; }
   const aimF = { x: new OneEuro(AIM_F.minCut, AIM_F.beta), y: new OneEuro(AIM_F.minCut, AIM_F.beta), mx: med3(), my: med3(), reset() { this.x.reset(); this.y.reset(); this.mx.reset(); this.my.reset(); } };
   let lastVT = -1, detN = 0, detMs = 0, skip = false;
   // The hand is kept as a direction in the ROOM, not as a place in the camera's picture. A camera picture is old by the
@@ -333,7 +347,10 @@
   // the fingertip's direction in the room now: where it was last seen, carried forward at its speed across the time
   // since that picture was taken (at most a tenth of a second), so the crosshair moves every frame
   function handNow(now, out) {
-    const a = Math.min(0.1, Math.max(0, (now - handRaw.t) / 1000)), yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
+    // a hand that is nearly still is not carried forward at all: its measured speed is then mostly the tracker's own
+    // shake, and carrying that forward would add to it
+    const sp = Math.hypot(handRaw.vy, handRaw.vp), k = Math.max(0, Math.min(1, (sp - 0.12) / 0.25));
+    const a = Math.min(0.1, Math.max(0, (now - handRaw.t) / 1000)) * k, yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
     return out.set(Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
   }
   // Easy on the arm: the head does the big aiming and the hand the fine. The crosshair is where you look, moved by how
@@ -342,7 +359,7 @@
   const FINE_GAIN = 0.5;
   const rest = { on: false, x: 0, y: 0, has: false };
   // the rear camera (widest view, 60 pictures a second, recovery if it gives no picture): opened by the engine
-  const { startCamera } = VRE.camera({ vid, plainKey: 'skeetVRPlainCam', info: { set cam(v) { S.cam = v; }, set camFps(v) { S.camFps = v; } } });
+  const { startCamera } = VRE.camera({ vid, plainKey: 'skeetVRPlainCam', info: { set cam(v) { S.cam = v; }, set camFps(v) { S.camFps = v; }, set camWide(v) { S.camWide = v; }, set camLens(v) { S.camLens = v; } }, lens: VRE.lensChoice() });
   // the hand finder (graphics chip first, processor if not; looks at a part of the picture that follows the hand)
   const hands = VRE.hands({ vid, MP });
   const { handSys, errText, loadHands, handSwap, roi, roiSource, roiAfter } = hands;
@@ -443,11 +460,12 @@
         const bx = lm[6].x - lm[5].x, by = lm[6].y - lm[5].y, k = Math.max(0, Math.min(1, ((lm[4].x - lm[5].x) * bx + (lm[4].y - lm[5].y) * by) / (bx * bx + by * by || 1)));
         const at = [[lm[5].x, lm[5].y], [lm[8].x, lm[8].y], [lm[4].x, lm[4].y], [lm[5].x + bx * k, lm[5].y + by * k]];
         handRaw.pts = handRaw.pts || at.map(() => new THREE.Vector3());
-        at.forEach((uv, i) => videoDir(uv[0], uv[1], handRaw.pts[i]).applyQuaternion(qThen));
+        const fresh = !handRaw.ptsOk; handRaw.ptsOk = true;
+        at.forEach((uv, i) => { videoDir(uv[0], uv[1], sv).applyQuaternion(qThen); if (fresh) handRaw.pts[i].copy(sv); else handRaw.pts[i].lerp(sv, 0.4).normalize(); });
       }
       handRaw.label = (res.handednesses && res.handednesses[0] && res.handednesses[0][0] && res.handednesses[0][0].categoryName) || '';
       feedTrigger(thumbReading(res), now);
-    } else { handRaw.ok = false; trig.cocked = false; trigF.reset(); }
+    } else { handRaw.ok = false; handRaw.ptsOk = false; trig.cocked = false; trigF.reset(); }
     if (S.phase === 'play') { if (lm) S.m.handFrames++; else S.m.lostFrames++; }
   }
 
@@ -732,7 +750,7 @@
     const row = {
       v: 1, ver: VERSION, t: new Date().toISOString(), mode: S.mode, room: S.showRoom, thrown: m.thrown, hit: m.hit, shots: m.shots, acc: m.shots ? m.goodShots / m.shots : 0, streak: m.best,
       missBy: m.missN ? m.missSum / m.missN : null, // how far outside the nearest clay's edge a missed shot passed, in degrees
-      practice: S.practice, fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
+      steady: AIM_F.level, camLens: S.camLens || '', camWide: S.camWide || '', practice: S.practice, fine: S.mode === 'hand' && rest.on ? FINE_GAIN : 1, handOff: m.offN ? m.offSum / m.offN : null, // degrees the hand sat from its resting place, on average
       camDelay: Math.round(cam.delay), camTold: cam.told,
       trigger: { thumb: m.thumb, tap: m.tap, dwell: m.dwell, flickers: m.flickers, rewind: m.rewN ? Math.round(m.rewSum / m.rewN) : null, kick: m.kickN ? m.kickSum / m.kickN : null, hi: m.thumbHi, lo: m.thumbLo < 9 ? m.thumbLo : null, up: trig.hi, down: trig.lo, fireAt: trig.fireAt, cockAt: trig.cockAt },
       hand: S.mode === 'hand' ? { frames, lost: m.lostFrames, lostPct: frames ? m.lostFrames / frames : 1, detectMs: detN ? detMs / detN : 0, label: handRaw.label } : null,
@@ -874,6 +892,7 @@
     } catch (e) {}
     window.addEventListener('deviceorientation', onOrient);
     S.mode = want; S.why = '';
+    setSteady(+$('steady').value);
     rest.on = $('fine').checked; rest.has = false; store.set('skeetVRFine2', rest.on);
     const needCam = want === 'hand' || S.showRoom;
     if (needCam && !S.stream) {
@@ -906,7 +925,7 @@
     try { if (wake) wake.release(); } catch (e) {}
     wake = null;
     if ($('status').textContent === 'Starting…' || $('status').textContent === 'Loading the hand tracker…') say('');
-    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam + (S.camFps ? ', ' + S.camFps + ' pictures a second' : '') + (handSys.on ? '. Hand finder on the ' + (handSys.on === 'GPU' ? 'graphics chip' : 'processor') : '') + (handSys.err ? ' (' + handSys.err + ')' : '') + '.');
+    if (S.cam && !$('status').textContent) say('Camera used: ' + S.cam + (S.camFps ? ', ' + S.camFps + ' pictures a second' : '') + (S.camWide ? ' (widest camera: ' + S.camWide + ')' : '') + (handSys.on ? '. Hand finder on the ' + (handSys.on === 'GPU' ? 'graphics chip' : 'processor') : '') + (handSys.err ? ' (' + handSys.err + ')' : '') + '.');
     drawRounds();
   }
   $('go').onclick = start;
@@ -917,7 +936,7 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden && S.on) stop(); });
 
   // for checks: read the state, point the head, place the hand in the camera picture, feed the thumb trigger, or fire
-  window.__skeet = { gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
+  window.__skeet = { AIM_F, setSteady, gunG, PR, VERSION, roi, handSys, S, camera, lens, blade, trig, shot, perf, snd, pic, fire, feedTrigger, thumbReading, look(yawDeg, pitchDeg) { drag.yaw = yawDeg * D; drag.pitch = pitchDeg * D; }, hand(u, v, agoMs) { if (u == null) handRaw.ok = false; else { const n = performance.now(); sight(n, u, v, n - (agoMs || 0)); } }, rest, handRaw, cam, setMode(m) { S.mode = m; } };
 })();
 </script>
 </body>

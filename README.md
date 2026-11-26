@@ -91,8 +91,12 @@ pinches and cursors:
 - **Forgiving shots.** If that aim misses, the shot may count from anywhere the
   crosshair was in the 150 ms before it.
 - **Steady crosshair.** The fingertip goes through a median of three and the One Euro
-  filter (0.8 Hz, beta 3), with more smoothing near the edge of the camera's view,
-  where the crosshair also fades to warn that the hand is about to be lost.
+  filter, with more smoothing near the edge of the camera's view, where the crosshair
+  also fades to warn that the hand is about to be lost. **Steadiness** on the setup page
+  chooses how hard it smooths: Normal is the training page's cursor filter (0.8 Hz, beta
+  3); Steadier (0.45 Hz, beta 2) and Steadiest (0.25 Hz, beta 1.4) are calmer and trail a
+  quick hand a little. A hand that is nearly still is not carried forward between camera
+  pictures, since its measured speed is then mostly the tracker's own shake.
 - A shot breaks any clay it passes within 2.5° of. Clays are drawn far bigger than
   real ones (1.6 m across) so they are easy to see and hit 17 m away.
 
@@ -145,6 +149,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.17** (26 Nov 2026): Steadier tracking, with a Steadiness setting (Normal, Steadier, Steadiest; Steadier by default); a nearly still hand is no longer carried forward on its own shake; the drawn finger and thumb are eased so they do not shiver. A choice of camera lens: Auto, Fisheye (widest) or Regular
 - **v0.16** (26 Nov 2026): The trigger goes back to the first measure, the gap between the thumb's tip and the base of the index finger, which read better on a real hand than v0.15's angle; the practice step now measures your own gap. The view draws your index finger, fingertip, thumb tip and the gap between them, as the game sees them
 - **v0.15** (26 Nov 2026): A practice step before the round (point at a still disc, thumb up, drop your thumb to break it, three times), which also measures your own thumb. The trigger now reads the angle between thumb and index finger and fires on the way from perpendicular to parallel
 - **v0.14** (26 Nov 2026): Runs on the shared VR engine (the VR-Portal repo, engine 1.0.0): the drawing surface, lens fitting, text signs, filters, camera, hand finder, sound and saved settings are loaded from there and no longer kept in this page. Nothing should look or play differently
