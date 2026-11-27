@@ -109,7 +109,7 @@
   const store = VRE.store;
   // The version of this page. It goes up by one with every change to the game, is shown beside the title, and is saved
   // with each round, so it is always clear which version is on screen and which one a result came from.
-  const VERSION = 'v0.19';
+  const VERSION = 'v0.20';
   $('ver').textContent = VERSION;
   const say = (t) => ($('status').textContent = t || '');
 
@@ -156,7 +156,7 @@
   // ---------- scene ----------
   // Edge smoothing is left to the screen's own density on a phone (it is costly there); the graphics chip is asked for its
   // fast mode. The picture is drawn at up to twice the page's resolution and that is lowered while frames run slow.
-  const { renderer, perf, pace, PR_MAX } = VRE.screen(() => S.phase === 'play');
+  const { renderer, perf, pace } = VRE.screen(() => S.phase === 'play');
   renderer.autoClear = false;
   $('view').insertBefore(renderer.domElement, $('view').firstChild);
   const scene = new THREE.Scene();
@@ -178,10 +178,6 @@
   room.add(grid);
   // the two houses the clays are thrown from: a tall one on the left and a low one on the right, as on a skeet field
   const HIGH = new THREE.Vector3(-14, 2.6, -18), LOW = new THREE.Vector3(14, -1.2, -18);
-  const houseMat = new THREE.MeshLambertMaterial({ color: 0x3a5278 });
-  const hh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.2, 1.3), houseMat); hh.position.set(-15, 0, -18); scene.add(hh);
-  const lh = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 1.3), houseMat); lh.position.set(15, -1.0, -18); scene.add(lh);
-  hh.visible = lh.visible = false; // the houses are not drawn: the clays simply come in from the left and the right
 
   // the rear camera picture, far behind everything and fixed to the head
   const vid = $('vid');
@@ -268,7 +264,6 @@
     pic.lx = k * va; pic.ly = k; pic.rz = turned ? rot * D : 0;
     vplane.scale.set(pic.lx, pic.ly, 1);
     vplane.rotation.z = pic.rz;
-    S.eyeAsp = eyeAsp;
     $('turn').hidden = !(S.on && !S.ready);
   }
 
@@ -339,7 +334,7 @@
   // every turn of the head drags the crosshair along and it snaps back at the next picture.
   const CAM_DELAY = 70;  // milliseconds from a picture being taken to the page having it, when the browser does not say
   const UNIT = 1.4;      // radians across the camera picture, so the filter's settings keep their meaning
-  const handRaw = { ok: false, yaw: 0, pitch: 0, vy: 0, vp: 0, t: 0, label: '', edge: 1, fast: 0, calm: 1, palm: 0.12, ref: new THREE.Vector3(0, 0, -1) };
+  const handRaw = { ok: false, yaw: 0, pitch: 0, vy: 0, vp: 0, t: 0, label: '', edge: 1, fast: 0, palm: 0.12, ref: new THREE.Vector3(0, 0, -1) };
   const handMot = VRE.Motion ? new VRE.Motion() : null; // the atlas's tracker for a moving hand (engine 1.2.0 and later)
   const headLog = [];    // where the head has pointed over the last four tenths of a second
   let headJump = false;  // the view was just set straight ahead again: directions from before no longer mean the same
@@ -378,11 +373,11 @@
     const sy = aimF.x.f(aimF.mx.f(yaw / UNIT), tCap), sp = aimF.y.f(aimF.my.f(pitch / UNIT), tCap);
     handRaw.yaw = (sy + (mo.lead[0] - sy) * mo.fast) * UNIT; handRaw.pitch = (sp + (mo.lead[1] - sp) * mo.fast) * UNIT;
     handRaw.vy = handMot ? handMot.vl[0] * UNIT : 0; handRaw.vp = handMot ? handMot.vl[1] * UNIT : 0; // speed averaged over 80 ms: a tremor cancels out
-    handRaw.fast = mo.fast; handRaw.calm = mo.calm;
+    handRaw.fast = mo.fast;
     handRaw.ok = true; handRaw.t = tCap; handRaw.edge = edge; handRaw.ref.copy(sv);
   }
   // the fingertip's direction in the room now: where it was last seen, carried forward at its speed across the time
-  // since that picture was taken (at most a tenth of a second), so the crosshair moves every frame
+  // since that picture was taken (at most a twentieth of a second), so the crosshair moves every frame
   function handNow(now, out) {
     // carried forward only while the hand is really moving (the tracker's "fast"), and for at most a twentieth of a second
     const a = Math.min(0.05, Math.max(0, (now - handRaw.t) / 1000)) * (handRaw.fast || 0), yaw = handRaw.yaw + handRaw.vy * a, pitch = handRaw.pitch + handRaw.vp * a, c = Math.cos(pitch);
@@ -393,7 +388,7 @@
   // seconds) while nothing is in the air and holds still during a throw, so the arm can settle wherever is comfortable.
   const FINE_GAIN = 0.5;
   const rest = { on: false, x: 0, y: 0, has: false };
-  // the rear camera (widest view, 60 pictures a second, recovery if it gives no picture): opened by the engine
+  // the rear camera (the lens chosen on the start page, 60 pictures a second, recovery if it gives no picture): opened by the engine
   const { startCamera } = VRE.camera({ vid, plainKey: 'skeetVRPlainCam', info: { set cam(v) { S.cam = v; }, set camFps(v) { S.camFps = v; }, set camWide(v) { S.camWide = v; }, set camLens(v) { S.camLens = v; } }, lens: VRE.lensChoice() });
   // the hand finder (graphics chip first, processor if not; looks at a part of the picture that follows the hand)
   const hands = VRE.hands({ vid, MP });
@@ -512,8 +507,8 @@
   }
 
   // ---------- game state ----------
-  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, eyeAsp: 1, w: 1, h: 1, ready: true, clays: [], bits: [], m: null, plan: [], next: 0, cued: false, dwell: 0, count: 0, endAt: 0, stream: null, cam: '' };
-  const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), speed: 0, lastSeen: 0 };
+  const S = { on: false, phase: 'idle', mode: 'head', showRoom: false, w: 1, h: 1, ready: true, clays: [], bits: [], m: null, plan: [], next: 0, cued: false, dwell: 0, count: 0, endAt: 0, stream: null, cam: '' };
+  const blade = { ok: false, dir: new THREE.Vector3(0, 0, -1), lastSeen: 0 };
   const G = 2.9;        // gravity on a clay: gentle for a field this size, so it hangs in the air long enough to aim
   const CLAY_R = 0.8;   // a clay's radius in metres: far bigger than a real one, so it is easy to see and hit 17 m away
   const SPREAD = 2.5;   // degrees a shot may pass outside a clay's edge and still break it
@@ -545,7 +540,7 @@
     m.rotation.x = 1.05; // tipped towards you, so you see the disc's face and not its thin edge
     m.position.copy(from);
     scene.add(m);
-    S.clays.push({ m, v: new THREE.Vector3((cx - from.x) / tc, (cy - from.y) / tc + 0.5 * G * tc, (cz - from.z) / tc), age: 0, near: 99 });
+    S.clays.push({ m, v: new THREE.Vector3((cx - from.x) / tc, (cy - from.y) / tc + 0.5 * G * tc, (cz - from.z) / tc), age: 0 });
     S.m.thrown++;
     recEvent('throw', { from: r3(from), v: r3(S.clays[S.clays.length - 1].v) });
     sfx('launch', panOf(from));
@@ -624,7 +619,7 @@
       return (x) => { const p = (Math.max(-1, Math.min(1, x)) + 1) / 2; return 0.5 * (lo - pad + (hi - lo + 2 * pad) * p) + 0.5 * q(p); };
     };
     const gx = make(yaws), gy = make(pitches);
-    return { gx, gy, slope: (g, x) => (g(x + 0.01) - g(x - 0.01)) / 0.02 };
+    return { gx, gy };
   })();
   // the training page's soft landing: inside 4% of an edge the crosshair eases in rather than stopping hard
   const soft = (u) => { u = Math.max(0, Math.min(1, u)); if (u > 0.04 && u < 0.96) return u; const e = Math.max(0, Math.min(1, u <= 0.04 ? u / 0.04 : (1 - u) / 0.04)), ease = e * e * (3 - 2 * e); return u <= 0.04 ? 0.04 * ease : 1 - 0.04 * ease; };
@@ -644,8 +639,6 @@
     return out.set(Math.sin(yaw) * c, Math.sin(pitch), -Math.cos(yaw) * c);
   }
   function updateBlade(now, dt) {
-    const was = blade.ok;
-    tmpB.copy(blade.dir);
     if (S.mode === 'hand') {
       if (handRaw.ok) {
         handNow(now, tmpA);
@@ -670,8 +663,6 @@
       blade.dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
       blade.ok = true;
     }
-    const inst = was && blade.ok && dt > 0 ? (tmpB.angleTo(blade.dir) / D) / dt : 0;
-    blade.speed += (Math.min(inst, 2500) - blade.speed) * 0.5;
     if (blade.ok) { aimLog.push({ t: now, d: blade.dir.clone(), cl: S.clays.map((c) => ({ c, p: c.m.position.clone() })) }); while (aimLog.length && now - aimLog[0].t > 600) aimLog.shift(); }
     else aimLog.length = 0;
   }

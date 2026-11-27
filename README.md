@@ -150,9 +150,10 @@ them, which is what is needed to tune the trigger.
 
 ## Status
 
-First version. The game, the trigger logic and the gaze mode have been tested in a
-desktop browser with a simulated hand. The thumb trigger has not yet been tried
-with a real hand in a viewer, so its thresholds are a starting guess.
+The game is tested in a desktop browser with a simulated hand before every release.
+It has been played on an iPhone in a Cardboard viewer: the thumb trigger and the
+practice step work there, and the aim has since been steadied. What a real hand does
+to the tracking is being measured with "Record my hand while I play".
 
 ## Fitting the picture to the lenses
 
@@ -181,6 +182,7 @@ this site. Checked in a desktop browser; not yet looked at through a viewer.
 The version is shown beside the title on the setup page and saved with every round
 (`ver`). It goes up by one with every change to the game. Newest first.
 
+- **v0.20** (27 Nov 2026): Clean-up, no change to play: leftovers removed (two hidden houses, a blade-speed reading from Fruit Slicer, fields that were written and never read), and this page's Status and camera notes brought up to date.
 - **v0.19** (26 Nov 2026): "Record my hand while I play" on the start page. It keeps where your hand's points and your head were during play (no picture), and "Save recording" or "Copy recording" hands it over, so the tracking can be tuned against your own hand.
 - **v0.18** (26 Nov 2026): A third way to aim, the hand box: a box drawn round your hand that follows it, with small hand movements sweeping the crosshair over the whole field. Smoothing as in the Planetary Modeling Atlas (engine 1.2.0), and a tracker jump no longer throws the crosshair. Practice is easier: two steps a disc, a wider zone round the disc, and a shot counts if the ring was near the disc a moment before
 - **v0.17** (26 Nov 2026): Steadier tracking, with a Steadiness setting (Normal, Steadier, Steadiest; Steadier by default); a nearly still hand is no longer carried forward on its own shake; the drawn finger and thumb are eased so they do not shiver. A choice of camera lens: Auto, Fisheye (widest) or Regular
@@ -211,8 +213,8 @@ Skeet's own: head tracking, the hand-in-the-room aiming, the thumb trigger, the 
 and the scoring. If the engine cannot be loaded, the setup page says so and Start is
 switched off.
 
-**Finding a small hand through the widest camera.** The game always opens the widest
-rear camera, and through it a hand at arm's length is only about a tenth of the
+**Finding a small hand through the widest camera.** With the fisheye lens (the choice on the start page; Auto prefers it) the game opens
+the widest rear camera, and through it a hand at arm's length is only about a tenth of the
 picture's width. The hand finder first shrinks the picture to a small square, where a
 hand that size cannot be made out. So the hand finder is given a part of the picture
 half as wide and half as tall, in which the hand looks twice the size. The part follows
